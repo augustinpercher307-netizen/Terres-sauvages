@@ -56753,7 +56753,7 @@ const ASSETS = {
 // =====================================================================
 //  TERRES SAUVAGES — données du jeu
 // =====================================================================
-const GAME_VERSION = '7.4';
+const GAME_VERSION = '7.5';
 const SAVE_KEY = 'terres_sauvages_save_v2';
 const MAX_LEVEL = 100;
 const SEASON_OPTIONS = [21, 60, 150, 0]; // 0 = illimitée
@@ -58435,18 +58435,32 @@ const AUDIO = {
   init() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
-    const c = this.ctx; this.master = c.createGain(); this.master.connect(c.destination);
+    const c = this.ctx; this.master = c.createGain();
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.25; // évite les sons agressifs
+    const soft = c.createBiquadFilter(); soft.type = 'highshelf'; soft.frequency.value = 7000; soft.gain.value = -5;
+    this.master.connect(soft); soft.connect(comp); comp.connect(c.destination);
     this.sfx = c.createGain(); this.sfx.connect(this.master); this.amb = c.createGain(); this.amb.connect(this.master);
-    this.reverb = c.createConvolver(); this.reverb.buffer = this.impulse(3.2, 2.6); const rg = c.createGain(); rg.gain.value = 0.55; this.reverb.connect(rg); rg.connect(this.sfx);
-    this.noiseBuf = this.makeNoise(2);
-    // vent continu
-    const src = c.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 0.6;
-    this.windGain = c.createGain(); this.windGain.gain.value = 0.08; src.connect(f); f.connect(this.windGain); this.windGain.connect(this.amb); src.start(); this.windFilter = f;
+    this.noiseBuf = this.makeNoise(3, 'pink'); this.whiteBuf = this.makeNoise(1, 'white'); this.brownBuf = this.makeNoise(4, 'brown');
+    this.reverb = c.createConvolver(); this.reverb.buffer = this.impulse(3.6, 2.2); const rg = c.createGain(); rg.gain.value = 0.5; this.reverb.connect(rg); rg.connect(this.sfx);
+    // vent continu (grave) + bruissement des feuilles (aigu) qui suivent les rafales
+    const src = c.createBufferSource(); src.buffer = this.brownBuf; src.loop = true; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 380; f.Q.value = 0.5;
+    this.windGain = c.createGain(); this.windGain.gain.value = 0.1; src.connect(f); f.connect(this.windGain); this.windGain.connect(this.amb); src.start(); this.windFilter = f;
+    const lv = c.createBufferSource(); lv.buffer = this.noiseBuf; lv.loop = true; const lf = c.createBiquadFilter(); lf.type = 'bandpass'; lf.frequency.value = 3200; lf.Q.value = 0.4;
+    this.leafGain = c.createGain(); this.leafGain.gain.value = 0.01; lv.connect(lf); lf.connect(this.leafGain); this.leafGain.connect(this.amb); lv.start(0.7);
     this.ready = true; this.applyVolumes();
   },
   applyVolumes() { if (!this.ready) return; const s = SETTINGS; this.master.gain.value = s.master; this.sfx.gain.value = s.sfx; this.amb.gain.value = s.ambient; },
-  makeNoise(sec) { const c = this.ctx, b = c.createBuffer(1, c.sampleRate * sec, c.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; },
-  impulse(sec, decay) { const c = this.ctx, n = c.sampleRate * sec, b = c.createBuffer(2, n, c.sampleRate); for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, decay) * (i < c.sampleRate * 0.02 ? 0.2 : 1); } return b; },
+  makeNoise(sec, kind = 'pink') { const c = this.ctx, b = c.createBuffer(1, c.sampleRate * sec, c.sampleRate), d = b.getChannelData(0); let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, last = 0;
+    for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1;
+      if (kind === 'white') d[i] = w;
+      else if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; }
+      else { b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852; b3 = 0.8665 * b3 + w * 0.3104856; b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898; d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + w * 0.5362) * 0.11; } }
+    return b; },
+  impulse(sec, decay) { const c = this.ctx, sr = c.sampleRate, n = sr * sec, b = c.createBuffer(2, n, sr);
+    for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); let lp = 0;
+      for (let i = 0; i < n; i++) { const t = i / n; lp += (Math.random() * 2 - 1 - lp) * (0.35 - 0.3 * t); d[i] = lp * Math.pow(1 - t, decay) * 0.6; }
+      for (let k = 0; k < 14; k++) { const at = Math.floor(sr * (0.04 + Math.random() * 0.9)); const amp = (0.5 - k * 0.025) * (Math.random() * 0.6 + 0.4); for (let j = 0; j < sr * 0.03 && at + j < n; j++) d[at + j] += (Math.random() * 2 - 1) * amp * Math.exp(-j / (sr * 0.006)); } }
+    return b; },
   panner(pos) {
     const p = this.ctx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 8; p.maxDistance = 3000; p.rolloffFactor = 0.9;
     if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z; } else p.setPosition(pos.x, pos.y, pos.z); p.connect(this.sfx); p.connect(this.reverb); return p;
@@ -58456,26 +58470,33 @@ const AUDIO = {
     cam.getWorldPosition(p); const q = new THREE.Quaternion(); cam.getWorldQuaternion(q); f.applyQuaternion(q); u.applyQuaternion(q);
     if (L.positionX) { L.positionX.value = p.x; L.positionY.value = p.y; L.positionZ.value = p.z; L.forwardX.value = f.x; L.forwardY.value = f.y; L.forwardZ.value = f.z; L.upX.value = u.x; L.upY.value = u.y; L.upZ.value = u.z; }
     else { L.setPosition(p.x, p.y, p.z); L.setOrientation(f.x, f.y, f.z, u.x, u.y, u.z); }
-    this.windGain.gain.value = 0.04 + GAME.windStr * 0.1; this.windFilter.frequency.value = 300 + GAME.windStr * 400 + Math.sin(GAME.clock * 0.3) * 80;
+    const gust = 0.5 + 0.5 * Math.sin(GAME.clock * 0.23) * Math.sin(GAME.clock * 0.071 + 1); this.windGain.gain.value = 0.05 + GAME.windStr * 0.09 * (0.6 + gust * 0.6); this.windFilter.frequency.value = 260 + GAME.windStr * 300 + gust * 160; if (this.leafGain) this.leafGain.gain.value = (0.004 + GAME.windStr * 0.02 * gust) * (forestAt(PLAYER.x, PLAYER.z) > 0 ? 1.4 : 0.6);
   },
   env(g, t, a, peak, d) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); },
   gunshot(strength = 1, suppressed = false) {
-    if (!this.ready) return; const c = this.ctx, t = c.currentTime;
-    const n = c.createBufferSource(); n.buffer = this.noiseBuf; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(suppressed ? 1800 : 6000, t); f.frequency.exponentialRampToValueAtTime(300, t + 0.4);
-    const g = c.createGain(); this.env(g, t, 0.002, (suppressed ? 0.35 : 1.0) * strength, suppressed ? 0.25 : 0.6); n.connect(f); f.connect(g); g.connect(this.sfx); g.connect(this.reverb); n.start(t); n.stop(t + 1);
-    const o = c.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(35, t + 0.3); const og = c.createGain(); this.env(og, t, 0.003, 0.9 * strength * (suppressed ? 0.4 : 1), 0.35); o.connect(og); og.connect(this.sfx); o.start(t); o.stop(t + 0.5);
-    // échos de la vallée
-    for (const [dl, v] of [[0.55, 0.22], [1.1, 0.12], [1.9, 0.06]]) { const e = c.createBufferSource(); e.buffer = this.noiseBuf; const ef = c.createBiquadFilter(); ef.type = 'lowpass'; ef.frequency.value = 700; const eg = c.createGain(); this.env(eg, t + dl, 0.02, v * strength * (suppressed ? 0.3 : 1), 0.7); e.connect(ef); ef.connect(eg); eg.connect(this.sfx); e.start(t + dl); e.stop(t + dl + 1); }
+    if (!this.ready) return; const c = this.ctx, t = c.currentTime; const s = strength * (suppressed ? 0.35 : 1);
+    const burst = (buf, type, f0, f1, q, peak, a, d, at = 0, rev = 1) => { const n = c.createBufferSource(); n.buffer = buf; const f = c.createBiquadFilter(); f.type = type; f.Q.value = q; f.frequency.setValueAtTime(f0, t + at); f.frequency.exponentialRampToValueAtTime(f1, t + at + a + d); const g = c.createGain(); this.env(g, t + at, a, peak, d); n.connect(f); f.connect(g); g.connect(this.sfx); if (rev) { const rg = c.createGain(); rg.gain.value = rev; g.connect(rg); rg.connect(this.reverb); } n.start(t + at, Math.random() * 0.5); n.stop(t + at + a + d + 0.1); };
+    if (!suppressed) burst(this.whiteBuf, 'highpass', 2500, 1800, 0.7, 0.55 * s, 0.0008, 0.012, 0, 0.3); // claquement supersonique
+    burst(this.noiseBuf, 'lowpass', suppressed ? 2400 : 7000, 260, 0.7, 0.9 * s, 0.002, suppressed ? 0.18 : 0.32);
+    const o = c.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.35); const og = c.createGain(); this.env(og, t, 0.003, 0.85 * s, 0.4); o.connect(og); og.connect(this.sfx); o.start(t); o.stop(t + 0.5);
+    if (!suppressed) for (const [dl, v, fr] of [[0.45, 0.22, 900], [0.9, 0.16, 700], [1.5, 0.11, 520], [2.3, 0.07, 400], [3.2, 0.04, 320]]) burst(this.brownBuf, 'lowpass', fr, fr * 0.6, 0.5, v * strength * 3, 0.06, 0.9 + dl * 0.3, dl, 0.4);
   },
+
   click(freq = 1800, vol = 0.25, dur = 0.04) { if (!this.ready) return; const c = this.ctx, t = c.currentTime; const n = c.createBufferSource(); n.buffer = this.noiseBuf; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 3; const g = c.createGain(); this.env(g, t, 0.001, vol, dur); n.connect(f); f.connect(g); g.connect(this.sfx); n.start(t, Math.random()); n.stop(t + dur + 0.05); },
   bolt() { this.click(1400, 0.3, 0.05); setTimeout(() => this.click(2200, 0.25, 0.04), 180); setTimeout(() => this.click(1100, 0.3, 0.05), 380); setTimeout(() => this.click(2600, 0.2, 0.03), 520); },
   reload() { for (let i = 0; i < 4; i++) setTimeout(() => this.click(2400 + Math.random() * 500, 0.2, 0.03), 300 + i * 420); },
-  step(vol = 0.1, crunchy = 0) { if (!this.ready) return; const c = this.ctx, t = c.currentTime; const n = c.createBufferSource(); n.buffer = this.noiseBuf; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900 + crunchy * 1500 + Math.random() * 400; f.Q.value = 0.8; const g = c.createGain(); this.env(g, t, 0.01, vol, 0.12 + Math.random() * 0.08); n.connect(f); f.connect(g); g.connect(this.sfx); n.start(t, Math.random()); n.stop(t + 0.3); },
+  step(vol = 0.1, crunchy = 0) { if (!this.ready) return; const c = this.ctx, t = c.currentTime;
+    for (const [at, k] of [[0, 1], [0.06 + Math.random() * 0.03, 0.7]]) { const n = c.createBufferSource(); n.buffer = this.noiseBuf; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1300 + crunchy * 1800 + Math.random() * 700; f.Q.value = 0.9; const g = c.createGain(); this.env(g, t + at, 0.012, vol * 0.8 * k, 0.09 + Math.random() * 0.07); n.connect(f); f.connect(g); g.connect(this.sfx); n.start(t + at, Math.random() * 2); n.stop(t + at + 0.25); } },
   thud(pos, heavy) { if (!this.ready) return; const c = this.ctx, t = c.currentTime; const o = c.createOscillator(); o.frequency.setValueAtTime(heavy ? 70 : 160, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.15); const g = c.createGain(); this.env(g, t + 0.05, 0.005, heavy ? 0.8 : 0.5, 0.2); const p = this.panner(pos); o.connect(g); g.connect(p); o.start(t); o.stop(t + 0.5); },
   impact(pos) { if (!this.ready) return; const c = this.ctx, t = c.currentTime; const n = c.createBufferSource(); n.buffer = this.noiseBuf; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1200; const g = c.createGain(); this.env(g, t, 0.002, 0.6, 0.15); const p = this.panner(pos); n.connect(f); f.connect(g); g.connect(p); n.start(t); n.stop(t + 0.3); },
   call(kind, pos) {
     HEARD.push({ x: pos.x, z: pos.z, t: GAME.clock, kind: 'cri' }); if (!this.ready) return; const c = this.ctx, t = c.currentTime; const p = this.panner(pos);
-    const voice = (f0, f1, dur, type = 'sawtooth', vol = 0.5, at = 0, fq = 900) => { const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t + at); o.frequency.exponentialRampToValueAtTime(f1, t + at + dur); const fl = c.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = fq; fl.Q.value = 1.2; const g = c.createGain(); this.env(g, t + at, 0.03, vol, dur); o.connect(fl); fl.connect(g); g.connect(p); o.start(t + at); o.stop(t + at + dur + 0.1); };
+    const voice = (f0, f1, dur, type = 'sawtooth', vol = 0.5, at = 0, fq = 900) => { const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t + at); o.frequency.exponentialRampToValueAtTime(f1, t + at + dur);
+      const l = c.createOscillator(); l.frequency.value = 5 + Math.random() * 3; const lg = c.createGain(); lg.gain.value = f0 * 0.018; l.connect(lg); lg.connect(o.frequency); l.start(t + at); l.stop(t + at + dur + 0.1);
+      const f1a = c.createBiquadFilter(); f1a.type = 'bandpass'; f1a.frequency.value = fq; f1a.Q.value = 2.2; const f2a = c.createBiquadFilter(); f2a.type = 'bandpass'; f2a.frequency.value = fq * 2.6; f2a.Q.value = 3;
+      const nz = c.createBufferSource(); nz.buffer = this.noiseBuf; const nf = c.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = fq; nf.Q.value = 1; const ng = c.createGain();
+      const g = c.createGain(); g.gain.setValueAtTime(0.0001, t + at); g.gain.linearRampToValueAtTime(vol * 0.7, t + at + Math.min(0.06, dur * 0.25)); g.gain.setValueAtTime(vol * 0.6, t + at + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur);
+      ng.gain.value = 0.25; o.connect(f1a); o.connect(f2a); nz.connect(nf); nf.connect(ng); f1a.connect(g); f2a.connect(g); ng.connect(g); g.connect(p); o.start(t + at); o.stop(t + at + dur + 0.05); nz.start(t + at, Math.random()); nz.stop(t + at + dur + 0.05); };
     if (kind === 'bark') { voice(520, 300, 0.22, 'sawtooth', 0.7, 0, 800); voice(500, 280, 0.2, 'sawtooth', 0.6, 0.9, 800); }
     if (kind === 'brame') { voice(110, 160, 1.4, 'sawtooth', 0.9, 0, 380); voice(150, 95, 1.2, 'sawtooth', 0.8, 1.35, 340); }
     if (kind === 'grunt') { for (let i = 0; i < 3; i++) voice(95 + Math.random() * 20, 70, 0.18, 'square', 0.4, i * 0.35, 260); }
@@ -58485,11 +58506,20 @@ const AUDIO = {
     if (kind === 'quack') { for (let i = 0; i < 5; i++) voice(520, 380, 0.12, 'square', 0.4, i * 0.17 * (1 - i * 0.08), 900); }
     if (kind === 'fox') { voice(900, 1400, 0.25, 'triangle', 0.4, 0, 1200); voice(1300, 800, 0.3, 'triangle', 0.4, 0.4, 1100); }
   },
-  bird() {
-    if (!this.ready) return; const c = this.ctx, t = c.currentTime; const P = PLAYER; const pos = new THREE.Vector3(P.x + (Math.random() - 0.5) * 80, P.eyeY + 8, P.z + (Math.random() - 0.5) * 80); const p = this.panner(pos);
-    const h = GAME.time % 24; const night = h < 6 || h > 20;
-    const n = night ? 2 : 3 + Math.floor(Math.random() * 6); const base = night ? 420 : 2400 + Math.random() * 2400;
-    for (let i = 0; i < n; i++) { const o = c.createOscillator(); o.type = 'sine'; const at = t + i * (night ? 0.6 : 0.09 + Math.random() * 0.06); o.frequency.setValueAtTime(base * (1 + Math.random() * 0.3), at); o.frequency.exponentialRampToValueAtTime(base * (night ? 0.8 : 0.7 + Math.random() * 0.7), at + (night ? 0.4 : 0.07)); const g = c.createGain(); this.env(g, at, 0.01, night ? 0.25 : 0.12, night ? 0.45 : 0.06); o.connect(g); g.connect(p); o.start(at); o.stop(at + 0.6); }
+  bird() { // chants d'oiseaux variés (merle, pinson, mésange, pic) le jour ; chouette la nuit
+    if (!this.ready) return; const c = this.ctx, t = c.currentTime; const P = PLAYER; const h = GAME.time % 24; const night = h < 5.5 || h > 21;
+    if (typeof WEATHER !== 'undefined' && WEATHER.rain > 0.3 && Math.random() < 0.7) return;
+    const pos = new THREE.Vector3(P.x + (Math.random() - 0.5) * 120, P.eyeY + 6 + Math.random() * 10, P.z + (Math.random() - 0.5) * 120); const p = this.panner(pos);
+    const out = c.createGain(); out.gain.value = 0.55; out.connect(p);
+    const note = (at, f0, f1, dur, vol, vib = 0, type = 'sine') => { const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t + at); o.frequency.exponentialRampToValueAtTime(f1, t + at + dur);
+      if (vib) { const l = c.createOscillator(); l.frequency.value = 28 + Math.random() * 20; const lg = c.createGain(); lg.gain.value = f0 * vib; l.connect(lg); lg.connect(o.frequency); l.start(t + at); l.stop(t + at + dur + 0.05); }
+      const g = c.createGain(); g.gain.setValueAtTime(0.0001, t + at); g.gain.linearRampToValueAtTime(vol, t + at + Math.min(0.03, dur * 0.3)); g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur); o.connect(g); g.connect(out); o.start(t + at); o.stop(t + at + dur + 0.05); };
+    if (night) { if (Math.random() < 0.5) { note(0, 420, 400, 0.45, 0.22); note(0.9, 400, 380, 0.25, 0.14); note(1.2, 410, 370, 0.9, 0.2, 0.01); } return; }
+    const sp = Math.floor(Math.random() * 4);
+    if (sp === 0) { let at = 0; for (let k = 0; k < 5 + Math.random() * 4; k++) { const f = 1500 + Math.random() * 1300; note(at, f, f * (0.85 + Math.random() * 0.4), 0.12 + Math.random() * 0.18, 0.12, 0.012); at += 0.18 + Math.random() * 0.15; } } // merle : phrases flûtées
+    else if (sp === 1) { let at = 0; for (let k = 0; k < 9; k++) { note(at, 4200 - k * 180, 3600 - k * 180, 0.06, 0.07); at += 0.075; } note(at + 0.05, 3000, 4500, 0.18, 0.09); } // pinson : trille descendante
+    else if (sp === 2) { for (let k = 0; k < 3; k++) { note(k * 0.42, 5200, 5000, 0.12, 0.06); note(k * 0.42 + 0.15, 3400, 3300, 0.16, 0.06); } } // mésange : « ti-tu ti-tu »
+    else { for (let k = 0; k < 4; k++) note(k * 0.12, 2800, 2200, 0.08, 0.05, 0, 'triangle'); } // petit cri
   },
   flush(pos, sp) { // envol (battements d'ailes)
     if (!this.ready) return; const c = this.ctx, t = c.currentTime; const p = this.panner(pos); const n = sp === 'pigeon' || sp === 'perdrix' ? 10 : 7;
@@ -58501,7 +58531,11 @@ const AUDIO = {
   heartbeat(rate) { if (!this.ready) return; const c = this.ctx, t = c.currentTime; for (const dl of [0, 0.18]) { const o = c.createOscillator(); o.frequency.value = 50; const g = c.createGain(); this.env(g, t + dl, 0.01, 0.15, 0.12); o.connect(g); g.connect(this.sfx); o.start(t + dl); o.stop(t + dl + 0.2); } },
   ui() { this.click(3000, 0.12, 0.025); },
   tick(dt) {
-    if (!this.ready) return; this.birdsT -= dt; if (this.birdsT <= 0) { this.birdsT = 2 + Math.random() * 7; this.bird(); }
+    if (!this.ready) return; this.birdsT -= dt; if (this.birdsT <= 0) { const h = GAME.time % 24; this.birdsT = (h < 5.5 || h > 21 ? 14 : 3) + Math.random() * 8; this.bird(); }
+    // grillons le soir et la nuit (très discrets)
+    const h = GAME.time % 24; const cr = (h > 19 || h < 5) && !(typeof WEATHER !== 'undefined' && WEATHER.rain > 0.2) ? 0.012 : 0;
+    if (!this.cricket && cr) { const c = this.ctx; const o = c.createOscillator(); o.frequency.value = 4600; const am = c.createOscillator(); am.frequency.value = 28; const ag = c.createGain(); ag.gain.value = 0.5; const g = c.createGain(); g.gain.value = 0; am.connect(ag); ag.connect(g.gain); o.connect(g); g.connect(this.amb); o.start(); am.start(); this.cricket = g; }
+    if (this.cricket) this.cricket.gain.value += ((cr ? cr * (0.6 + 0.4 * Math.sin(GAME.clock * 0.9)) : 0) - this.cricket.gain.value) * Math.min(1, dt);
   },
 };
 
@@ -60593,7 +60627,7 @@ async function boot() {
 window.addEventListener('error', (e) => { const d = $('err'); if (d) { d.style.display = 'block'; d.textContent = 'Erreur : ' + (e.message || e) + (e.lineno ? ' (ligne ' + e.lineno + ')' : ''); } });
 boot().catch(e => { console.error(e); const d = $('err'); d.style.display = 'block'; d.textContent = 'Erreur au démarrage : ' + (e.message || e); });
 // accès de débogage (console du navigateur)
-window.__TS = { baseSpots, nearBase, get TOUCH() { return TOUCH; }, initTouch, netLend, WEAPONS, netTick, netHit, openChat, get NET() { return NET; }, get SAVE_SLOT() { return SAVE_SLOT; }, netParties, growthFactor, checkRecords, Animal, ZONES, SPECIES, playerLevel, useCall, dogSearch, toggleLamp, setWeather, get WEATHER() { return WEATHER; }, get DOG() { return DOG; }, makeCreature, populate, addXP, toggleVehicle, renderThermal, GAME, PLAYER, GUN, ANIMALS, ACTIONS, get SAVE() { return SAVE; }, get SETTINGS() { return SETTINGS; }, equipWeapon, fire, interact, harvest, openPanel, closePanel, advanceTime, simulateShot, groundAt, CAMERA: () => CAMERA, RENDERER: () => RENDERER, SCENE: () => SCENE, updateSky, toast, VR };
+window.__TS = { AUDIO, baseSpots, nearBase, get TOUCH() { return TOUCH; }, initTouch, netLend, WEAPONS, netTick, netHit, openChat, get NET() { return NET; }, get SAVE_SLOT() { return SAVE_SLOT; }, netParties, growthFactor, checkRecords, Animal, ZONES, SPECIES, playerLevel, useCall, dogSearch, toggleLamp, setWeather, get WEATHER() { return WEATHER; }, get DOG() { return DOG; }, makeCreature, populate, addXP, toggleVehicle, renderThermal, GAME, PLAYER, GUN, ANIMALS, ACTIONS, get SAVE() { return SAVE; }, get SETTINGS() { return SETTINGS; }, equipWeapon, fire, interact, harvest, openPanel, closePanel, advanceTime, simulateShot, groundAt, CAMERA: () => CAMERA, RENDERER: () => RENDERER, SCENE: () => SCENE, updateSky, toast, VR };
 
 // ---------- Commandes tactiles (téléphone / tablette Android) ----------
 // S'activent au premier toucher de l'écran : joystick à gauche, regard en glissant à droite, boutons d'action.
@@ -60781,7 +60815,7 @@ function dogPush() {
 // Mise à jour automatique : au lancement, le jeu regarde s'il existe une version plus récente en ligne.
 // Si oui il la télécharge et la lance (les sauvegardes restent les mêmes). Sans Internet, il lance la version du fichier.
 (function () {
-  var V = '7.4', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
+  var V = '7.5', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () { }); } catch (e) { } }
   function run() { var s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('ts-game').textContent; document.body.appendChild(s); }
   function newer(a, b) { a = String(a).split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < Math.max(a.length, b.length); i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; }
