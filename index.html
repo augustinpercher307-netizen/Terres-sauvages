@@ -56753,7 +56753,7 @@ const ASSETS = {
 // =====================================================================
 //  TERRES SAUVAGES — données du jeu
 // =====================================================================
-const GAME_VERSION = '6.6';
+const GAME_VERSION = '6.7';
 const SAVE_KEY = 'terres_sauvages_save_v2';
 const MAX_LEVEL = 100;
 const SEASON_OPTIONS = [21, 60, 150, 0]; // 0 = illimitée
@@ -60614,7 +60614,7 @@ function dogPush() {
 // Mise à jour automatique : au lancement, le jeu regarde s'il existe une version plus récente en ligne.
 // Si oui il la télécharge et la lance (les sauvegardes restent les mêmes). Sans Internet, il lance la version du fichier.
 (function () {
-  var V = '6.6', U = 'https://augustinpercher307-netizen.github.io/terres-sauvages/';
+  var V = '6.7', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () { }); } catch (e) { } }
   function run() { var s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('ts-game').textContent; document.body.appendChild(s); }
   function newer(a, b) { a = String(a).split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < Math.max(a.length, b.length); i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; }
