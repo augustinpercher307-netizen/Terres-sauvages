@@ -56753,7 +56753,7 @@ const ASSETS = {
 // =====================================================================
 //  TERRES SAUVAGES — données du jeu
 // =====================================================================
-const GAME_VERSION = '6.8';
+const GAME_VERSION = '6.9';
 const SAVE_KEY = 'terres_sauvages_save_v2';
 const MAX_LEVEL = 100;
 const SEASON_OPTIONS = [21, 60, 150, 0]; // 0 = illimitée
@@ -58687,7 +58687,7 @@ const KEYS = {}; const KB = (a) => (SETTINGS.keys && SETTINGS.keys[a]) || defaul
 function loadSettings() { try { const s = JSON.parse(localStorage.getItem(SAVE_KEY + '_settings')); const o = Object.assign(defaultSettings(), s || {}); o.keys = Object.assign(defaultKeys(), (s && s.keys) || {}); return o; } catch (e) { return defaultSettings(); } }
 function saveSettings() { try { localStorage.setItem(SAVE_KEY + '_settings', JSON.stringify(SETTINGS)); } catch (e) { } }
 function hasSave() { try { return !!localStorage.getItem(saveKey()); } catch (e) { return false; } }
-function writeSave() { if (!SAVE) return; SAVE.time = GAME.time; SAVE.pos = { x: PLAYER.x, z: PLAYER.z, yaw: PLAYER.yaw }; SAVE.gun = GUN.states; try { localStorage.setItem(saveKey(), JSON.stringify(SAVE)); return true; } catch (e) { return false; } }
+function writeSave() { if (!SAVE) return; SAVE.time = GAME.time; SAVE.pos = { x: PLAYER.x, z: PLAYER.z, yaw: PLAYER.yaw }; SAVE.gun = GUN.states; try { localStorage.setItem(saveKey(), JSON.stringify(SAVE)); localStorage.setItem(SAVE_KEY + '_stamp', String(Date.now())); if (typeof cloudSchedule === 'function') cloudSchedule(); return true; } catch (e) { return false; } }
 let SAVE_SLOT = null; function saveKey() { return SAVE_KEY + (SAVE_SLOT ? '_' + SAVE_SLOT : ''); }
 function readSave() { try { const s = JSON.parse(localStorage.getItem(saveKey())); if (!s) return null; return Object.assign(newSave(), s); } catch (e) { return null; } }
 
@@ -59441,7 +59441,7 @@ function bagPanel() {
   h += `</div><div class="actions">${btn('Fermer', 'close', '', 'primary')}</div>`; return h;
 }
 function pausePanel() {
-  return `<h2>Pause</h2><div class="sub">Jour ${SAVE.day}/${seasonTxt()} · ${timeStr()} · ${fmt(SAVE.money)} €</div><div class="menu-col">${btn('Reprendre', 'close', '', 'primary')}${btn('Sac à dos', 'open', 'bag')}${btn('Carte', 'open', 'map')}${btn('Retourner au camp (+30 min)', 'toCamp')}${btn(NET.active ? 'Partie entre amis (' + (NET.peers.size + 1) + ' joueurs)' : 'Jouer entre amis', 'open', 'net')}${btn('Transférer ma partie', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}${btn('Sauvegarder', 'save')}${btn('Menu principal', 'mainMenu')}</div>`;
+  return `<h2>Pause</h2><div class="sub">Jour ${SAVE.day}/${seasonTxt()} · ${timeStr()} · ${fmt(SAVE.money)} €</div><div class="menu-col">${btn('Reprendre', 'close', '', 'primary')}${btn('Sac à dos', 'open', 'bag')}${btn('Carte', 'open', 'map')}${btn('Retourner au camp (+30 min)', 'toCamp')}${btn(NET.active ? 'Partie entre amis (' + (NET.peers.size + 1) + ' joueurs)' : 'Jouer entre amis', 'open', 'net')}${btn('Sauvegarde en ligne / transfert', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}${btn('Sauvegarder', 'save')}${btn('Menu principal', 'mainMenu')}</div>`;
 }
 function optionsPanel() {
   const S = SETTINGS; const pct = (v) => Math.round(v * 100) + ' %';
@@ -59591,13 +59591,14 @@ function showCode(code) { const box = document.createElement('div'); box.classNa
 function onPanelClick(e) { const b = e.target.closest('button[data-act]'); if (!b || b.disabled) return; AUDIO.init(); AUDIO.ui(); const f = ACTIONS[b.dataset.act]; if (f) f(b.dataset.arg); updateHUD(true); }
 
 function showMainMenu() {
+  if (!UI.cloudChecked) { UI.cloudChecked = true; setTimeout(() => { try { cloudCheck(false); } catch (e) { } }, 800); }
   document.body.classList.remove('ingame'); GAME.inGame = false; for (const a of [...ANIMALS]) a.remove();
   GAME.state = 'menu'; UI.panel = 'menu'; if (document.pointerLockElement) document.exitPointerLock();
   const has = hasSave(); const vrOk = VR.supported;
   $('panel-inner').innerHTML = `<div class="title"><div class="t1">TERRES SAUVAGES</div><div class="t2">Simulateur de chasse réaliste · PC & réalité virtuelle</div></div><div class="menu-col">
     ${has ? btn('Continuer la saison', 'continue', '', 'primary') : ''}${btn('Nouvelle saison', 'confirmNew', '', has ? '' : 'primary')}
     ${btn(vrOk ? 'Jouer en réalité virtuelle' : 'Réalité virtuelle : casque non détecté', 'vr', '', '', !vrOk)}
-    ${btn('Jouer entre amis (partie privée)', 'netMenu')}${btn('Transférer ma partie (PC ↔ téléphone)', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}</div>
+    ${btn('Jouer entre amis (partie privée)', 'netMenu')}${btn('Sauvegarde en ligne / transférer ma partie', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}</div>
     <div class="foot">Réserve de 2,9 × 2,9 km en 9 zones · 14 espèces dont 5 oiseaux · niveaux 1 à 100 · v${GAME_VERSION}</div>`;
   $('panel').style.display = 'flex'; $('panel').classList.add('main'); if (GAME.vr) VR.menuDirty = true;
 }
@@ -60347,7 +60348,7 @@ async function xferGet(code) { // cet appareil reçoit une partie
 }
 function xferLevel(s) { let l = 1; for (let i = 0; i < LEVEL_XP.length; i++) if ((s.xp || 0) >= LEVEL_XP[i]) l = i + 1; return l; }
 function xferPanel() {
-  let h = `<h2>Transférer ma partie</h2><div class="sub">Pour continuer votre partie sur un autre appareil (PC ↔ téléphone). Les deux appareils doivent avoir Internet. Tout est copié : niveau, argent, armes, records et parties entre amis.</div><div class="scroll">`;
+  let h = `<h2>Transférer ma partie</h2><div class="sub">Pour continuer votre partie sur un autre appareil (PC ↔ téléphone). Les deux appareils doivent avoir Internet. Tout est copié : niveau, argent, armes, records et parties entre amis.</div><div class="scroll">` + cloudSection() + `<h3>Ou : transfert direct avec un code (une seule fois)</h3>`;
   if (XFER.msg) h += `<div class="sub" style="color:#ffd27a">${XFER.msg}</div>`;
   if (XFER.got) return h + `</div><div class="actions">${btn('Oui, remplacer par la partie reçue', 'xferApply', '', 'primary')}${btn('Annuler', 'xferCancel')}</div>`;
   if (XFER.code) h += `<div style="text-align:center;margin:10px 0"><div class="sub">Sur l'autre appareil, ouvrez « Transférer ma partie » → « Recevoir » et tapez :</div><div style="font-size:54px;font-weight:800;letter-spacing:12px;color:#f2b84b">${XFER.code}</div><div class="sub">Laissez cette fenêtre ouverte pendant le transfert.</div></div>`;
@@ -60363,6 +60364,81 @@ Object.assign(ACTIONS, {
   xferCancel: () => { XFER.got = null; XFER.msg = ''; renderPanel(); },
   xferClose: () => { try { XFER.ws && XFER.ws.close(); } catch (e) { } XFER.ws = null; XFER.code = null; XFER.msg = ''; closePanel(); },
 });
+
+// ---------- Sauvegarde en ligne (cloud) sur le compte GitHub du joueur ----------
+// La partie est copiée dans un « gist » secret de votre GitHub. Chaque appareil (PC, téléphone) envoie sa partie
+// après chaque sauvegarde et propose de reprendre la plus récente au démarrage : on peut avancer en déplacement.
+const CLOUD = { t: 0, busy: false, last: 0, status: '' };
+const CLOUD_FILE = 'terres-sauvages-sauvegarde.json', CLOUD_DESC = 'Terres Sauvages — sauvegarde en ligne (ne pas supprimer)';
+function cloudCfg() { try { return JSON.parse(localStorage.getItem(SAVE_KEY + '_cloud')) || null; } catch (e) { return null; } }
+function cloudSetCfg(c) { try { if (c) localStorage.setItem(SAVE_KEY + '_cloud', JSON.stringify(c)); else localStorage.removeItem(SAVE_KEY + '_cloud'); } catch (e) { } }
+function localStamp() { try { return +localStorage.getItem(SAVE_KEY + '_stamp') || 0; } catch (e) { return 0; } }
+async function gh(path, token, opt = {}) {
+  const r = await fetch('https://api.github.com' + path, Object.assign({ cache: 'no-store' }, opt, { headers: Object.assign({ Authorization: 'token ' + token, Accept: 'application/vnd.github+json' }, opt.body ? { 'Content-Type': 'application/json' } : {}) }));
+  if (!r.ok) throw new Error('GitHub ' + r.status); return r.json();
+}
+function cloudBundle() { const out = { v: 1, t: localStamp() || Date.now(), keys: {} }; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(SAVE_KEY) && !/_settings$|_cloud$|_stamp$/.test(k)) out.keys[k] = localStorage.getItem(k); } } catch (e) { } return out; }
+async function cloudActivate(token) {
+  token = (token || '').trim(); if (!token) { CLOUD.status = 'Collez d\'abord votre clé GitHub.'; renderPanel(); return; }
+  CLOUD.status = 'Vérification de la clé…'; renderPanel();
+  try {
+    const list = await gh('/gists?per_page=100', token); let g = list.find(x => x.description === CLOUD_DESC);
+    const cfg = { token, gist: g ? g.id : null }; cloudSetCfg(cfg);
+    if (g) { CLOUD.status = '✅ Sauvegarde en ligne activée. Une partie existe déjà en ligne : vérification…'; renderPanel(); const done = await cloudCheck(true); if (!done) CLOUD.status = '✅ Sauvegarde en ligne activée sur cet appareil.'; }
+    else { await cloudPush(true); CLOUD.status = '✅ Sauvegarde en ligne activée : votre partie est maintenant en ligne.'; }
+  } catch (e) { CLOUD.status = '❌ Clé refusée par GitHub. Vérifiez qu\'elle est copiée en entier et qu\'elle a bien l\'autorisation « gist ».'; }
+  if (UI.panel === 'xfer') renderPanel();
+}
+async function cloudPush(force) {
+  const cfg = cloudCfg(); if (!cfg || CLOUD.busy) return; if (!force && Date.now() - CLOUD.last < 20000) { cloudSchedule(); return; }
+  CLOUD.busy = true; CLOUD.last = Date.now();
+  try {
+    const body = JSON.stringify({ description: CLOUD_DESC, public: false, files: { [CLOUD_FILE]: { content: JSON.stringify(cloudBundle()) } } });
+    if (cfg.gist) await gh('/gists/' + cfg.gist, cfg.token, { method: 'PATCH', body });
+    else { const g = await gh('/gists', cfg.token, { method: 'POST', body }); cfg.gist = g.id; cloudSetCfg(cfg); }
+    CLOUD.ok = new Date();
+  } catch (e) { CLOUD.err = e.message; } CLOUD.busy = false;
+}
+let CLOUD_TIMER = null;
+function cloudSchedule() { if (!cloudCfg()) return; clearTimeout(CLOUD_TIMER); CLOUD_TIMER = setTimeout(() => cloudPush(false), 21000); }
+async function cloudFetch() {
+  const cfg = cloudCfg(); if (!cfg || !cfg.gist) return null; const g = await gh('/gists/' + cfg.gist, cfg.token); const f = g.files[CLOUD_FILE]; if (!f) return null;
+  const txt = f.truncated ? await (await fetch(f.raw_url, { cache: 'no-store' })).text() : f.content; return JSON.parse(txt);
+}
+// au démarrage : si la partie en ligne est plus récente que celle de l'appareil, on propose de la reprendre
+async function cloudCheck(manual) {
+  let b; try { b = await cloudFetch(); } catch (e) { return false; } if (!b || !b.keys) return false;
+  if (!manual && b.t <= localStamp() + 1000) return false;
+  const s = b.keys[SAVE_KEY] ? JSON.parse(b.keys[SAVE_KEY]) : null; if (!s) return false;
+  const ago = Math.max(1, Math.round((Date.now() - b.t) / 60000)); const agoTxt = ago < 60 ? ago + ' min' : ago < 1440 ? Math.round(ago / 60) + ' h' : Math.round(ago / 1440) + ' jour(s)';
+  if (manual && b.t <= localStamp() + 1000) { CLOUD.status = '✅ Cet appareil a déjà la partie la plus récente.'; if (UI.panel === 'xfer') renderPanel(); return true; }
+  const box = document.createElement('div'); box.id = 'cloudbox';
+  box.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)';
+  box.innerHTML = `<div style="background:#141a14;border:1px solid #f2b84b;border-radius:12px;padding:22px;max-width:460px;color:#eee;font:15px Inter,sans-serif;text-align:center">
+    <div style="font-size:20px;font-weight:700;color:#f2b84b;margin-bottom:8px">☁ Partie plus récente en ligne</div>
+    <div>Niveau <b>${xferLevel(s)}</b> · ${fmt(s.money || 0)} € · jour ${s.day || 1}<br>enregistrée il y a ${agoTxt} (sur un autre appareil).</div>
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:center"><button id="cloudyes" class="primary">Reprendre cette partie</button><button id="cloudno">Garder celle de cet appareil</button></div></div>`;
+  document.body.appendChild(box);
+  $('cloudyes').onclick = () => { try { for (const [k, v] of Object.entries(b.keys)) localStorage.setItem(k, v); localStorage.setItem(SAVE_KEY + '_stamp', String(b.t)); } catch (e) { } location.reload(); };
+  $('cloudno').onclick = () => { box.remove(); cloudPush(true); };
+  return true;
+}
+function cloudSection() {
+  const cfg = cloudCfg(); let h = `<h3>☁ Sauvegarde en ligne automatique (pour jouer partout)</h3>`;
+  if (CLOUD.status) h += `<div class="sub" style="color:#ffd27a">${CLOUD.status}</div>`;
+  if (cfg) return h + row('Activée sur cet appareil', btn('Vérifier maintenant', 'cloudSync') + btn('Désactiver', 'cloudOff'), `Votre partie est envoyée en ligne après chaque sauvegarde.${CLOUD.ok ? ' Dernier envoi : ' + CLOUD.ok.toLocaleTimeString('fr-FR') : ''} Au démarrage, le jeu propose la partie la plus récente.`);
+  return h + `<div class="sub">Votre partie est rangée dans votre compte GitHub (en privé). À faire une fois sur chaque appareil (PC et téléphone), avec la même clé :<br>
+    1. Ouvrez <a href="https://github.com/settings/tokens/new?scopes=gist&description=Terres%20Sauvages%20sauvegarde" target="_blank" style="color:#f2b84b">ce lien GitHub</a> (connecté à votre compte).<br>
+    2. Dans « Expiration », choisissez <b>No expiration</b>, puis cliquez <b>Generate token</b> en bas.<br>
+    3. Copiez la clé qui commence par <b>ghp_</b> (gardez-la dans vos notes pour le téléphone) et collez-la ici :</div>`
+    + row(`<input id="cloudtok" type="password" placeholder="ghp_..." style="width:240px">`, btn('Activer', 'cloudOn', '', 'primary'));
+}
+Object.assign(ACTIONS, {
+  cloudOn: () => cloudActivate($('cloudtok').value),
+  cloudOff: () => { cloudSetCfg(null); CLOUD.status = 'Sauvegarde en ligne désactivée sur cet appareil (la partie en ligne est conservée).'; renderPanel(); },
+  cloudSync: async () => { CLOUD.status = 'Vérification…'; renderPanel(); const shown = await cloudCheck(true); if (!shown) { await cloudPush(true); CLOUD.status = '✅ Partie envoyée en ligne.'; } renderPanel(); },
+});
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && cloudCfg() && SAVE && GAME.inGame) { writeSave(); cloudPush(true); } });
 
 // =====================================================================
 //  DÉMARRAGE, ENTRÉES, BOUCLE PRINCIPALE
@@ -60677,7 +60753,7 @@ function dogPush() {
 // Mise à jour automatique : au lancement, le jeu regarde s'il existe une version plus récente en ligne.
 // Si oui il la télécharge et la lance (les sauvegardes restent les mêmes). Sans Internet, il lance la version du fichier.
 (function () {
-  var V = '6.8', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
+  var V = '6.9', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () { }); } catch (e) { } }
   function run() { var s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('ts-game').textContent; document.body.appendChild(s); }
   function newer(a, b) { a = String(a).split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < Math.max(a.length, b.length); i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; }
