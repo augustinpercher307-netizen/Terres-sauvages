@@ -56753,7 +56753,7 @@ const ASSETS = {
 // =====================================================================
 //  TERRES SAUVAGES — données du jeu
 // =====================================================================
-const GAME_VERSION = '6.9';
+const GAME_VERSION = '7.0';
 const SAVE_KEY = 'terres_sauvages_save_v2';
 const MAX_LEVEL = 100;
 const SEASON_OPTIONS = [21, 60, 150, 0]; // 0 = illimitée
@@ -59441,7 +59441,7 @@ function bagPanel() {
   h += `</div><div class="actions">${btn('Fermer', 'close', '', 'primary')}</div>`; return h;
 }
 function pausePanel() {
-  return `<h2>Pause</h2><div class="sub">Jour ${SAVE.day}/${seasonTxt()} · ${timeStr()} · ${fmt(SAVE.money)} €</div><div class="menu-col">${btn('Reprendre', 'close', '', 'primary')}${btn('Sac à dos', 'open', 'bag')}${btn('Carte', 'open', 'map')}${btn('Retourner au camp (+30 min)', 'toCamp')}${btn(NET.active ? 'Partie entre amis (' + (NET.peers.size + 1) + ' joueurs)' : 'Jouer entre amis', 'open', 'net')}${btn('Sauvegarde en ligne / transfert', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}${btn('Sauvegarder', 'save')}${btn('Menu principal', 'mainMenu')}</div>`;
+  return `<h2>Pause</h2><div class="sub">Jour ${SAVE.day}/${seasonTxt()} · ${timeStr()} · ${fmt(SAVE.money)} €</div><div class="menu-col">${btn('Reprendre', 'close', '', 'primary')}${btn('Sac à dos', 'open', 'bag')}${btn('Carte', 'open', 'map')}${btn('Retourner au camp (+30 min)', 'toCamp')}${btn(NET.active ? 'Partie entre amis (' + (NET.peers.size + 1) + ' joueurs)' : 'Jouer entre amis', 'open', 'net')}${btn('Code de partie (PC ↔ téléphone)', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}${btn('Sauvegarder', 'save')}${btn('Menu principal', 'mainMenu')}</div>`;
 }
 function optionsPanel() {
   const S = SETTINGS; const pct = (v) => Math.round(v * 100) + ' %';
@@ -59598,7 +59598,7 @@ function showMainMenu() {
   $('panel-inner').innerHTML = `<div class="title"><div class="t1">TERRES SAUVAGES</div><div class="t2">Simulateur de chasse réaliste · PC & réalité virtuelle</div></div><div class="menu-col">
     ${has ? btn('Continuer la saison', 'continue', '', 'primary') : ''}${btn('Nouvelle saison', 'confirmNew', '', has ? '' : 'primary')}
     ${btn(vrOk ? 'Jouer en réalité virtuelle' : 'Réalité virtuelle : casque non détecté', 'vr', '', '', !vrOk)}
-    ${btn('Jouer entre amis (partie privée)', 'netMenu')}${btn('Sauvegarde en ligne / transférer ma partie', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}</div>
+    ${btn('Jouer entre amis (partie privée)', 'netMenu')}${btn('Code de partie (PC ↔ téléphone)', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}</div>
     <div class="foot">Réserve de 2,9 × 2,9 km en 9 zones · 14 espèces dont 5 oiseaux · niveaux 1 à 100 · v${GAME_VERSION}</div>`;
   $('panel').style.display = 'flex'; $('panel').classList.add('main'); if (GAME.vr) VR.menuDirty = true;
 }
@@ -60027,37 +60027,46 @@ function netBroker(id, onMsg) {
   });
 }
 function brokerSend(ws, dst, payload, type = 'OFFER') { try { ws.send(JSON.stringify({ type, dst, payload })); } catch (e) { } }
+// ---- code à 5 chiffres : mise en relation par la base en ligne du jeu (le jeu passe ensuite en direct entre les PC) ----
 async function netHostOpen() { // l'hôte obtient un code à 5 chiffres
   NET.ui.step = 'host'; NET.ui.msg = 'Création du code…'; NET.role = 'host'; NET.myId = 'host'; renderPanel();
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < 5; k++) {
     const code = String(10000 + Math.floor(Math.random() * 90000));
-    try { NET.ws = await netBroker(PEER_PREFIX + code, netHostBrokerMsg); NET.code = code; NET.ui.msg = ''; renderPanel(); return; } catch (e) { if (!/TAKEN/.test(e.message)) break; }
+    try { const ex = await fbGet('/rooms/' + code + '/open'); if (ex && Date.now() - ex < 6 * 3600e3) continue; await fbPut('/rooms/' + code, { open: Date.now(), host: myName() }); NET.code = code; NET.ui.msg = ''; NET.seen = {}; netHostPoll(); renderPanel(); return; }
+    catch (e) { break; }
   }
-  NET.ui.msg = 'Impossible d\'obtenir un code (pas d\'Internet, ou réseau d\'entreprise qui bloque). Utilisez la méthode manuelle ci-dessous.'; renderPanel();
+  NET.ui.msg = 'Impossible d\'obtenir un code (pas d\'Internet ?). Utilisez la méthode manuelle ci-dessous.'; renderPanel();
 }
-async function netHostBrokerMsg(m, ws) {
-  const p = m.payload || {};
-  if (m.type === 'OFFER' && p.join) { if (NET.peers.size >= 3) { brokerSend(ws, m.src, { full: true }); return; } const { peer, data } = await netHostMakeOffer(); NET.pendings = NET.pendings || {}; NET.pendings[peer.id] = peer; brokerSend(ws, m.src, data); }
-  else if (m.type === 'ANSWER' && p.gid && NET.pendings && NET.pendings[p.gid]) { const peer = NET.pendings[p.gid]; delete NET.pendings[p.gid]; try { await peer.pc.setRemoteDescription({ type: 'answer', sdp: p.sdp }); } catch (e) { } }
+async function netHostPoll() { // l'hôte regarde toutes les 1,5 s si un ami demande à entrer
+  const code = NET.code; if (!code || NET.role !== 'host') return;
+  try {
+    const room = await fbGet('/rooms/' + code) || {};
+    for (const [rid, req] of Object.entries(room.req || {})) {
+      if (NET.seen[rid]) continue; NET.seen[rid] = true;
+      if (NET.peers.size >= 3) { await fbPut('/rooms/' + code + '/offer/' + rid, { full: true }); continue; }
+      const { peer, data } = await netHostMakeOffer(); NET.pendings = NET.pendings || {}; NET.pendings[rid] = peer; await fbPut('/rooms/' + code + '/offer/' + rid, data);
+    }
+    for (const [rid, ans] of Object.entries(room.answer || {})) { const peer = NET.pendings && NET.pendings[rid]; if (peer && ans && ans.sdp) { delete NET.pendings[rid]; try { await peer.pc.setRemoteDescription({ type: 'answer', sdp: ans.sdp }); } catch (e) { } } }
+    if (Date.now() - (NET.roomT || 0) > 60000) { NET.roomT = Date.now(); fbPut('/rooms/' + code + '/open', Date.now()); }
+  } catch (e) { }
+  if (NET.code === code) setTimeout(netHostPoll, 1500);
 }
 async function netGuestCode(code) { // l'ami tape le code à 5 chiffres
   code = String(code || '').replace(/\D/g, ''); if (code.length !== 5) { NET.ui.msg = 'Le code doit faire 5 chiffres.'; renderPanel(); return; }
-  NET.ui.msg = 'Recherche de la partie ' + code + '…'; renderPanel(); let ws;
-  try { ws = await netBroker(PEER_PREFIX + 'j' + Math.random().toString(36).slice(2, 10), async (m, w) => {
-    const p = m.payload || {};
-    if (m.type === 'OFFER' && p.full) { NET.ui.msg = 'Cette partie est complète (4 joueurs).'; renderPanel(); }
-    else if (m.type === 'OFFER' && p.sdp) { NET.ui.msg = 'Partie trouvée, connexion…'; renderPanel(); const ans = await netGuestAnswer(p); brokerSend(w, m.src, { sdp: ans, gid: p.gid }, 'ANSWER'); setTimeout(() => { try { w.close(); } catch (e) { } }, 4000); }
-    else if (m.type === 'EXPIRE' || m.type === 'LEAVE') { NET.ui.msg = 'Aucune partie avec le code ' + code + '. Vérifiez le code (la partie de votre ami doit être ouverte).'; renderPanel(); }
-  }); } catch (e) { NET.ui.msg = 'Impossible de joindre le service de mise en relation (pas d\'Internet, ou réseau d\'entreprise qui bloque). Essayez la méthode manuelle.'; renderPanel(); return; }
-  brokerSend(ws, PEER_PREFIX + code, { join: true, name: myName() });
-  setTimeout(() => { if (!NET.active && /Recherche/.test(NET.ui.msg)) { NET.ui.msg = 'Aucune réponse pour le code ' + code + '. Vérifiez le code et que la partie de votre ami est bien ouverte.'; if (UI.panel === 'net') renderPanel(); } }, 12000);
-}
-async function netHostAccept(code) { // l'hôte colle le code réponse de son ami
-  const peer = NET.pending; if (!peer) return; let d; try { d = await netDecode(code); } catch (e) { NET.ui.msg = 'Code réponse illisible : copiez-le en entier.'; renderPanel(); return; }
-  if (d.gid !== peer.id) { NET.ui.msg = 'Ce code réponse ne correspond pas à la dernière invitation.'; renderPanel(); return; }
-  try { await peer.pc.setRemoteDescription({ type: 'answer', sdp: d.sdp }); } catch (e) { NET.ui.msg = 'Réponse refusée : recréez une invitation.'; renderPanel(); return; }
-  NET.ui.msg = 'Connexion en cours…'; NET.pending = null; NET.ui.step = 'host'; NET.ui.code = ''; renderPanel();
-  setTimeout(() => { if (!NET.peers.has(peer.id)) { NET.ui.msg = 'La connexion n\'a pas abouti. Vérifiez que vous êtes tous les deux connectés à Internet (un réseau d\'entreprise peut bloquer), puis recommencez.'; if (UI.panel === 'net') renderPanel(); } }, 15000);
+  NET.ui.msg = 'Recherche de la partie ' + code + '…'; renderPanel();
+  let open; try { open = await fbGet('/rooms/' + code + '/open'); } catch (e) { NET.ui.msg = 'Pas de connexion au service en ligne. Essayez la méthode manuelle.'; renderPanel(); return; }
+  if (!open) { NET.ui.msg = 'Aucune partie avec le code ' + code + '. Vérifiez le code (la partie de votre ami doit être ouverte).'; renderPanel(); return; }
+  const rid = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  await fbPut('/rooms/' + code + '/req/' + rid, { name: myName(), t: Date.now() });
+  const t0 = Date.now();
+  const poll = async () => {
+    let off = null; try { off = await fbGet('/rooms/' + code + '/offer/' + rid); } catch (e) { }
+    if (off && off.full) { NET.ui.msg = 'Cette partie est complète (4 joueurs).'; renderPanel(); return; }
+    if (off && off.sdp) { NET.ui.msg = 'Partie trouvée, connexion…'; renderPanel(); const ans = await netGuestAnswer(off); await fbPut('/rooms/' + code + '/answer/' + rid, { sdp: ans }); setTimeout(() => { if (!NET.active) { NET.ui.msg = 'La connexion directe n\'a pas abouti (réseau trop protégé ?). Essayez depuis un autre réseau ou la méthode manuelle.'; if (UI.panel === 'net') renderPanel(); } }, 15000); return; }
+    if (Date.now() - t0 > 20000) { NET.ui.msg = 'L\'hôte ne répond pas. Vérifiez que sa partie est bien ouverte.'; renderPanel(); return; }
+    setTimeout(poll, 1200);
+  };
+  poll();
 }
 async function netGuestJoin(code) { // méthode manuelle : l'ami colle le long code d'invitation
   let d; try { d = await netDecode(code); } catch (e) { NET.ui.msg = 'Code d\'invitation illisible : copiez-le en entier.'; renderPanel(); return; }
@@ -60078,7 +60087,7 @@ function netPeerLost(peer) {
 }
 function netLeave(silent) {
   for (const p of NET.peers.values()) { try { p.dc && p.dc.close(); p.pc && p.pc.close(); } catch (e) { } if (p.avatar) SCENE.remove(p.avatar); }
-  netReturnLent(); const wasGuest = NET.role === 'guest'; const hadSlot = !!SAVE_SLOT; try { NET.ws && NET.ws.close(); } catch (e) { } NET.ws = null; NET.code = null; NET.pendings = {};
+  netReturnLent(); const wasGuest = NET.role === 'guest'; const hadSlot = !!SAVE_SLOT; try { NET.ws && NET.ws.close(); } catch (e) { } NET.ws = null; if (NET.code && NET.role === 'host') fbDel('/rooms/' + NET.code); NET.code = null; NET.pendings = {};
   NET.peers.clear(); NET.pending = null; NET.active = false; NET.role = null; NET.myId = 'host'; NET.proxies.clear(); NET.party = null; NET.hostLevel = 0; NET.ui = { step: 'menu', code: '', msg: '' };
   if (hadSlot) { netUseSlot(null); return; } // on revient sur sa sauvegarde personnelle
   if (wasGuest && GAME.inGame) { for (const a of [...ANIMALS]) a.remove(); populate(150); }
@@ -60348,16 +60357,11 @@ async function xferGet(code) { // cet appareil reçoit une partie
 }
 function xferLevel(s) { let l = 1; for (let i = 0; i < LEVEL_XP.length; i++) if ((s.xp || 0) >= LEVEL_XP[i]) l = i + 1; return l; }
 function xferPanel() {
-  let h = `<h2>Transférer ma partie</h2><div class="sub">Pour continuer votre partie sur un autre appareil (PC ↔ téléphone). Les deux appareils doivent avoir Internet. Tout est copié : niveau, argent, armes, records et parties entre amis.</div><div class="scroll">` + cloudSection() + `<h3>Ou : transfert direct avec un code (une seule fois)</h3>`;
-  if (XFER.msg) h += `<div class="sub" style="color:#ffd27a">${XFER.msg}</div>`;
-  if (XFER.got) return h + `</div><div class="actions">${btn('Oui, remplacer par la partie reçue', 'xferApply', '', 'primary')}${btn('Annuler', 'xferCancel')}</div>`;
-  if (XFER.code) h += `<div style="text-align:center;margin:10px 0"><div class="sub">Sur l'autre appareil, ouvrez « Transférer ma partie » → « Recevoir » et tapez :</div><div style="font-size:54px;font-weight:800;letter-spacing:12px;color:#f2b84b">${XFER.code}</div><div class="sub">Laissez cette fenêtre ouverte pendant le transfert.</div></div>`;
-  else h += `<h3>Envoyer la partie de cet appareil</h3>` + row('Créer un code à 5 chiffres', btn('Envoyer', 'xferSend', '', 'primary'), 'À faire sur l\'appareil qui a la partie la plus avancée.');
-  h += `<h3>Recevoir une partie ici</h3>` + row('Code affiché sur l\'autre appareil', `<input id="xferin" maxlength="5" inputmode="numeric" placeholder="12345" style="width:110px;font-size:22px;letter-spacing:4px;text-align:center">` + btn('Recevoir', 'xferGet', '', 'primary'), 'La partie de cet appareil sera remplacée (on vous demandera de confirmer).');
+  let h = `<h2>Code de partie</h2><div class="sub">Pour continuer votre partie partout (PC ↔ téléphone). Il faut Internet. Tout suit : niveau, argent, armes, records et parties entre amis.</div><div class="scroll">` + cloudSection();
   return h + `</div><div class="actions">${btn('Fermer', 'xferClose', '', 'primary')}</div>`;
 }
 Object.assign(ACTIONS, {
-  xferOpen: () => { XFER.msg = ''; XFER.got = null; openPanel('xfer'); },
+  xferOpen: () => { XFER.msg = ''; XFER.got = null; CLOUD.status = ''; openPanel('xfer'); },
   xferSend: () => xferSendStart(),
   xferGet: () => xferGet($('xferin').value),
   xferApply: () => { try { for (const [k, v] of Object.entries(XFER.got.keys)) localStorage.setItem(k, v); } catch (e) { toast('Impossible d\'enregistrer la partie reçue.'); return; } XFER.got = null; toast('Partie reçue ! Redémarrage…', 3); setTimeout(() => location.reload(), 600); },
@@ -60365,80 +60369,77 @@ Object.assign(ACTIONS, {
   xferClose: () => { try { XFER.ws && XFER.ws.close(); } catch (e) { } XFER.ws = null; XFER.code = null; XFER.msg = ''; closePanel(); },
 });
 
-// ---------- Sauvegarde en ligne (cloud) sur le compte GitHub du joueur ----------
-// La partie est copiée dans un « gist » secret de votre GitHub. Chaque appareil (PC, téléphone) envoie sa partie
-// après chaque sauvegarde et propose de reprendre la plus récente au démarrage : on peut avancer en déplacement.
-const CLOUD = { t: 0, busy: false, last: 0, status: '' };
-const CLOUD_FILE = 'terres-sauvages-sauvegarde.json', CLOUD_DESC = 'Terres Sauvages — sauvegarde en ligne (ne pas supprimer)';
-function cloudCfg() { try { return JSON.parse(localStorage.getItem(SAVE_KEY + '_cloud')) || null; } catch (e) { return null; } }
-function cloudSetCfg(c) { try { if (c) localStorage.setItem(SAVE_KEY + '_cloud', JSON.stringify(c)); else localStorage.removeItem(SAVE_KEY + '_cloud'); } catch (e) { } }
+// ---------- Code de partie : la même progression sur PC et téléphone ----------
+// La partie est rangée en ligne (base Firebase du jeu) sous un code fixe. Chaque appareil qui connaît le code
+// envoie sa partie après chaque sauvegarde et propose de reprendre la plus récente au démarrage.
+const FB = 'https://terres-sauvages-d8b7a-default-rtdb.europe-west1.firebasedatabase.app';
+const CLOUD = { busy: false, last: 0, status: '' };
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function fbGet(path) { return fetch(FB + path + '.json?t=' + Date.now(), { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('fb ' + r.status); return r.json(); }); }
+function fbPut(path, v) { return fetch(FB + path + '.json', { method: 'PUT', body: JSON.stringify(v) }).then(r => { if (!r.ok) throw new Error('fb ' + r.status); return r.json(); }); }
+function fbDel(path) { return fetch(FB + path + '.json', { method: 'DELETE' }).catch(() => { }); }
+function cloudCode() { try { return localStorage.getItem(SAVE_KEY + '_code') || null; } catch (e) { return null; } }
+function cloudSetCode(c) { try { if (c) localStorage.setItem(SAVE_KEY + '_code', c); else localStorage.removeItem(SAVE_KEY + '_code'); } catch (e) { } }
+function cloudCfg() { return cloudCode(); }
+function fmtCode(c) { return c ? c.slice(0, 5) + '-' + c.slice(5) : ''; }
 function localStamp() { try { return +localStorage.getItem(SAVE_KEY + '_stamp') || 0; } catch (e) { return 0; } }
-async function gh(path, token, opt = {}) {
-  const r = await fetch('https://api.github.com' + path, Object.assign({ cache: 'no-store' }, opt, { headers: Object.assign({ Authorization: 'token ' + token, Accept: 'application/vnd.github+json' }, opt.body ? { 'Content-Type': 'application/json' } : {}) }));
-  if (!r.ok) throw new Error('GitHub ' + r.status); return r.json();
-}
-function cloudBundle() { const out = { v: 1, t: localStamp() || Date.now(), keys: {} }; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(SAVE_KEY) && !/_settings$|_cloud$|_stamp$/.test(k)) out.keys[k] = localStorage.getItem(k); } } catch (e) { } return out; }
-async function cloudActivate(token) {
-  token = (token || '').trim(); if (!token) { CLOUD.status = 'Collez d\'abord votre clé GitHub.'; renderPanel(); return; }
-  CLOUD.status = 'Vérification de la clé…'; renderPanel();
-  try {
-    const list = await gh('/gists?per_page=100', token); let g = list.find(x => x.description === CLOUD_DESC);
-    const cfg = { token, gist: g ? g.id : null }; cloudSetCfg(cfg);
-    if (g) { CLOUD.status = '✅ Sauvegarde en ligne activée. Une partie existe déjà en ligne : vérification…'; renderPanel(); const done = await cloudCheck(true); if (!done) CLOUD.status = '✅ Sauvegarde en ligne activée sur cet appareil.'; }
-    else { await cloudPush(true); CLOUD.status = '✅ Sauvegarde en ligne activée : votre partie est maintenant en ligne.'; }
-  } catch (e) { CLOUD.status = '❌ Clé refusée par GitHub. Vérifiez qu\'elle est copiée en entier et qu\'elle a bien l\'autorisation « gist ».'; }
-  if (UI.panel === 'xfer') renderPanel();
-}
+function cloudBundle() { const out = { v: 1, t: localStamp() || Date.now(), keys: {} }; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(SAVE_KEY) && !/_settings$|_cloud$|_stamp$|_code$/.test(k)) out.keys[k] = localStorage.getItem(k); } } catch (e) { } return out; }
 async function cloudPush(force) {
-  const cfg = cloudCfg(); if (!cfg || CLOUD.busy) return; if (!force && Date.now() - CLOUD.last < 20000) { cloudSchedule(); return; }
+  const code = cloudCode(); if (!code || CLOUD.busy) return; if (!force && Date.now() - CLOUD.last < 20000) { cloudSchedule(); return; }
   CLOUD.busy = true; CLOUD.last = Date.now();
-  try {
-    const body = JSON.stringify({ description: CLOUD_DESC, public: false, files: { [CLOUD_FILE]: { content: JSON.stringify(cloudBundle()) } } });
-    if (cfg.gist) await gh('/gists/' + cfg.gist, cfg.token, { method: 'PATCH', body });
-    else { const g = await gh('/gists', cfg.token, { method: 'POST', body }); cfg.gist = g.id; cloudSetCfg(cfg); }
-    CLOUD.ok = new Date();
-  } catch (e) { CLOUD.err = e.message; } CLOUD.busy = false;
+  try { const b = cloudBundle(); await fbPut('/saves/' + code, { t: b.t, data: JSON.stringify(b) }); CLOUD.ok = new Date(); CLOUD.err = null; } catch (e) { CLOUD.err = e.message; }
+  CLOUD.busy = false;
 }
 let CLOUD_TIMER = null;
-function cloudSchedule() { if (!cloudCfg()) return; clearTimeout(CLOUD_TIMER); CLOUD_TIMER = setTimeout(() => cloudPush(false), 21000); }
-async function cloudFetch() {
-  const cfg = cloudCfg(); if (!cfg || !cfg.gist) return null; const g = await gh('/gists/' + cfg.gist, cfg.token); const f = g.files[CLOUD_FILE]; if (!f) return null;
-  const txt = f.truncated ? await (await fetch(f.raw_url, { cache: 'no-store' })).text() : f.content; return JSON.parse(txt);
+function cloudSchedule() { if (!cloudCode()) return; clearTimeout(CLOUD_TIMER); CLOUD_TIMER = setTimeout(() => cloudPush(false), 21000); }
+async function cloudFetch(code) { const r = await fbGet('/saves/' + (code || cloudCode())); if (!r || !r.data) return null; return JSON.parse(r.data); }
+async function cloudCreate() {
+  let code = ''; for (let i = 0; i < 10; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  cloudSetCode(code); CLOUD.status = 'Envoi de votre partie…'; renderPanel();
+  if (SAVE && GAME.inGame) writeSave(); await cloudPush(true);
+  CLOUD.status = CLOUD.err ? '❌ Impossible d\'envoyer la partie (pas d\'Internet ?). Réessayez.' : '✅ Votre code de partie est prêt. Notez-le !'; if (CLOUD.err) cloudSetCode(null); renderPanel();
+}
+async function cloudJoin(code) {
+  code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.length !== 10) { CLOUD.status = 'Le code fait 10 caractères (ex. K7P4Q-2XMZA).'; renderPanel(); return; }
+  CLOUD.status = 'Recherche de la partie…'; renderPanel(); let b;
+  try { b = await cloudFetch(code); } catch (e) { CLOUD.status = '❌ Pas de connexion au service en ligne.'; renderPanel(); return; }
+  if (!b) { CLOUD.status = '❌ Aucune partie avec ce code. Vérifiez-le.'; renderPanel(); return; }
+  cloudSetCode(code); CLOUD.status = ''; renderPanel(); cloudPrompt(b, true);
 }
 // au démarrage : si la partie en ligne est plus récente que celle de l'appareil, on propose de la reprendre
 async function cloudCheck(manual) {
-  let b; try { b = await cloudFetch(); } catch (e) { return false; } if (!b || !b.keys) return false;
-  if (!manual && b.t <= localStamp() + 1000) return false;
-  const s = b.keys[SAVE_KEY] ? JSON.parse(b.keys[SAVE_KEY]) : null; if (!s) return false;
+  if (!cloudCode()) return false; let b; try { b = await cloudFetch(); } catch (e) { return false; } if (!b || !b.keys) return false;
+  if (b.t <= localStamp() + 1000) { if (manual) { CLOUD.status = '✅ Cet appareil a déjà la partie la plus récente.'; if (UI.panel === 'xfer') renderPanel(); } return manual; }
+  cloudPrompt(b, false); return true;
+}
+function cloudPrompt(b, joining) {
+  const s = b.keys[SAVE_KEY] ? JSON.parse(b.keys[SAVE_KEY]) : null; if (!s) { cloudPush(true); return; }
   const ago = Math.max(1, Math.round((Date.now() - b.t) / 60000)); const agoTxt = ago < 60 ? ago + ' min' : ago < 1440 ? Math.round(ago / 60) + ' h' : Math.round(ago / 1440) + ' jour(s)';
-  if (manual && b.t <= localStamp() + 1000) { CLOUD.status = '✅ Cet appareil a déjà la partie la plus récente.'; if (UI.panel === 'xfer') renderPanel(); return true; }
   const box = document.createElement('div'); box.id = 'cloudbox';
   box.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)';
   box.innerHTML = `<div style="background:#141a14;border:1px solid #f2b84b;border-radius:12px;padding:22px;max-width:460px;color:#eee;font:15px Inter,sans-serif;text-align:center">
-    <div style="font-size:20px;font-weight:700;color:#f2b84b;margin-bottom:8px">☁ Partie plus récente en ligne</div>
-    <div>Niveau <b>${xferLevel(s)}</b> · ${fmt(s.money || 0)} € · jour ${s.day || 1}<br>enregistrée il y a ${agoTxt} (sur un autre appareil).</div>
-    <div style="margin-top:16px;display:flex;gap:10px;justify-content:center"><button id="cloudyes" class="primary">Reprendre cette partie</button><button id="cloudno">Garder celle de cet appareil</button></div></div>`;
+    <div style="font-size:20px;font-weight:700;color:#f2b84b;margin-bottom:8px">☁ ${joining ? 'Partie trouvée' : 'Partie plus récente en ligne'}</div>
+    <div>Niveau <b>${xferLevel(s)}</b> · ${fmt(s.money || 0)} € · jour ${s.day || 1}<br>enregistrée il y a ${agoTxt}.</div>
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button id="cloudyes" class="primary">Reprendre cette partie</button><button id="cloudno">Garder celle de cet appareil</button></div></div>`;
   document.body.appendChild(box);
   $('cloudyes').onclick = () => { try { for (const [k, v] of Object.entries(b.keys)) localStorage.setItem(k, v); localStorage.setItem(SAVE_KEY + '_stamp', String(b.t)); } catch (e) { } location.reload(); };
-  $('cloudno').onclick = () => { box.remove(); cloudPush(true); };
-  return true;
+  $('cloudno').onclick = () => { box.remove(); if (SAVE && GAME.inGame) writeSave(); else try { localStorage.setItem(SAVE_KEY + '_stamp', String(Date.now())); } catch (e) { } cloudPush(true); };
 }
 function cloudSection() {
-  const cfg = cloudCfg(); let h = `<h3>☁ Sauvegarde en ligne automatique (pour jouer partout)</h3>`;
+  const code = cloudCode(); let h = `<h3>☁ Code de partie (jouer sur PC et téléphone)</h3>`;
   if (CLOUD.status) h += `<div class="sub" style="color:#ffd27a">${CLOUD.status}</div>`;
-  if (cfg) return h + row('Activée sur cet appareil', btn('Vérifier maintenant', 'cloudSync') + btn('Désactiver', 'cloudOff'), `Votre partie est envoyée en ligne après chaque sauvegarde.${CLOUD.ok ? ' Dernier envoi : ' + CLOUD.ok.toLocaleTimeString('fr-FR') : ''} Au démarrage, le jeu propose la partie la plus récente.`);
-  return h + `<div class="sub">Votre partie est rangée dans votre compte GitHub (en privé). À faire une fois sur chaque appareil (PC et téléphone), avec la même clé :<br>
-    1. Ouvrez <a href="https://github.com/settings/tokens/new?scopes=gist&description=Terres%20Sauvages%20sauvegarde" target="_blank" style="color:#f2b84b">ce lien GitHub</a> (connecté à votre compte).<br>
-    2. Dans « Expiration », choisissez <b>No expiration</b>, puis cliquez <b>Generate token</b> en bas.<br>
-    3. Copiez la clé qui commence par <b>ghp_</b> (gardez-la dans vos notes pour le téléphone) et collez-la ici :</div>`
-    + row(`<input id="cloudtok" type="password" placeholder="ghp_..." style="width:240px">`, btn('Activer', 'cloudOn', '', 'primary'));
+  if (code) return h + `<div style="text-align:center;margin:8px 0"><div class="sub">Votre code de partie :</div><div style="font-size:40px;font-weight:800;letter-spacing:6px;color:#f2b84b">${fmtCode(code)}</div><div class="sub">Tapez ce code sur votre téléphone (même menu) pour y retrouver votre partie. Gardez-le pour vous : quelqu'un qui a ce code peut jouer sur votre partie.</div></div>`
+    + row('Synchronisation automatique activée', btn('Vérifier maintenant', 'cloudSync') + btn('Retirer de cet appareil', 'cloudOff'), `Votre partie est envoyée en ligne pendant que vous jouez.${CLOUD.ok ? ' Dernier envoi : ' + CLOUD.ok.toLocaleTimeString('fr-FR') : ''} Au démarrage, le jeu propose la partie la plus récente.`);
+  return h + row('Première fois ? Créez votre code (sur l\'appareil où est votre partie)', btn('Créer mon code', 'cloudNew', '', 'primary'), 'Votre partie actuelle sera mise en ligne.')
+    + row('Vous avez déjà un code ?', `<input id="cloudin" maxlength="11" placeholder="K7P4Q-2XMZA" style="width:150px;font-size:18px;letter-spacing:2px;text-align:center;text-transform:uppercase">` + btn('Utiliser ce code', 'cloudUse', '', 'primary'), 'Pour retrouver votre partie sur cet appareil.');
 }
 Object.assign(ACTIONS, {
-  cloudOn: () => cloudActivate($('cloudtok').value),
-  cloudOff: () => { cloudSetCfg(null); CLOUD.status = 'Sauvegarde en ligne désactivée sur cet appareil (la partie en ligne est conservée).'; renderPanel(); },
-  cloudSync: async () => { CLOUD.status = 'Vérification…'; renderPanel(); const shown = await cloudCheck(true); if (!shown) { await cloudPush(true); CLOUD.status = '✅ Partie envoyée en ligne.'; } renderPanel(); },
+  cloudNew: () => cloudCreate(),
+  cloudUse: () => cloudJoin($('cloudin').value),
+  cloudOff: () => { cloudSetCode(null); CLOUD.status = 'Code retiré de cet appareil (la partie en ligne est conservée, vous pouvez remettre le code plus tard).'; renderPanel(); },
+  cloudSync: async () => { CLOUD.status = 'Vérification…'; renderPanel(); const shown = await cloudCheck(true); if (!shown) { await cloudPush(true); CLOUD.status = CLOUD.err ? '❌ Envoi impossible (pas d\'Internet ?)' : '✅ Partie envoyée en ligne.'; } renderPanel(); },
 });
-addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && cloudCfg() && SAVE && GAME.inGame) { writeSave(); cloudPush(true); } });
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && cloudCode() && SAVE && GAME.inGame) { writeSave(); cloudPush(true); } });
 
 // =====================================================================
 //  DÉMARRAGE, ENTRÉES, BOUCLE PRINCIPALE
@@ -60753,7 +60754,7 @@ function dogPush() {
 // Mise à jour automatique : au lancement, le jeu regarde s'il existe une version plus récente en ligne.
 // Si oui il la télécharge et la lance (les sauvegardes restent les mêmes). Sans Internet, il lance la version du fichier.
 (function () {
-  var V = '6.9', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
+  var V = '7.0', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () { }); } catch (e) { } }
   function run() { var s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('ts-game').textContent; document.body.appendChild(s); }
   function newer(a, b) { a = String(a).split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < Math.max(a.length, b.length); i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; }
