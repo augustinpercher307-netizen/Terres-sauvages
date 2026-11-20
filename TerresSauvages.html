@@ -56753,7 +56753,7 @@ const ASSETS = {
 // =====================================================================
 //  TERRES SAUVAGES — données du jeu
 // =====================================================================
-const GAME_VERSION = '7.5';
+const GAME_VERSION = '7.6';
 const SAVE_KEY = 'terres_sauvages_save_v2';
 const MAX_LEVEL = 100;
 const SEASON_OPTIONS = [21, 60, 150, 0]; // 0 = illimitée
@@ -57377,6 +57377,7 @@ function buildTerrain(scene) {
     // teinte légère (herbe sèche / fraîche, neige, boue)
     t.setRGB(1, 1, 1); const dry = smooth(-0.1, 0.45, n1), lush = smooth(0.1, -0.35, n1);
     t.r += dry * 0.22 - lush * 0.1; t.g += dry * 0.06; t.b -= dry * 0.25 + lush * 0.05;
+    const dry2 = clamp(fbm(x * 0.006 + 40, z * 0.006 - 13, 3) * 1.6 + 0.35 + (y > 45 ? (y - 45) * 0.01 : 0) - fo * 0.6, 0, 1) * grass; t.r += dry2 * 0.32; t.g += dry2 * 0.07; t.b -= dry2 * 0.32; // mêmes zones sèches que l'herbe
     if (y > 125) { const sn = smooth(125, 165, y + n1 * 20) * smooth(0.6, 0.8, ny); t.lerp(new THREE.Color(2.6, 2.7, 2.8), sn); }
     if (y < 0.8) t.multiplyScalar(0.7);
     const v = 0.88 + n2 * 0.18; col[i * 3] = t.r * v; col[i * 3 + 1] = t.g * v; col[i * 3 + 2] = t.b * v;
@@ -57481,7 +57482,10 @@ function makeBushGeo(seed) {
   for (let i = 0; i < 9; i++) { const sz = 0.9 + r() * 0.7; const g = new THREE.PlaneGeometry(sz * 1.5, sz * 1.25); g.rotateY(r() * 3.14); g.rotateX((r() - 0.5) * 0.6); g.translate((r() - 0.5) * 1.3, 0.55 + r() * 0.5, (r() - 0.5) * 1.3); paint(g, 0x5a8a34, 0x2a4419, 0, 1.4, 0.18); l.push(g); }
   return merge(l);
 }
-function makeRockGeo(seed) { const g = new THREE.IcosahedronGeometry(1, 2); deform(g, 0.22, seed); deform(g, 0.1, seed + 7); g.scale(1.3, 0.75, 1); g.translate(0, 0.2, 0); paint(g, 0x8a877e, 0x5c5a54, -0.6, 1, 0.12); return prep(g); }
+function makeRockGeo(seed) { const g = new THREE.IcosahedronGeometry(1, 2); deform(g, 0.22, seed); deform(g, 0.1, seed + 7); g.scale(1.3, 0.75, 1); g.translate(0, 0.2, 0);
+  const P = g.attributes.position; const col = []; const r = mulberry32(seed); g.computeVertexNormals(); const N = g.attributes.normal;
+  for (let k = 0; k < P.count; k++) { const y = P.getY(k), ny = N.getY(k); const moss = smooth(0.35, 0.8, ny) * smooth(0.0, 0.5, y) * (0.6 + r() * 0.4); const base = new THREE.Color(0xb0aca2).lerp(new THREE.Color(0x6e6a62), smooth(0.8, -0.5, y)); base.lerp(new THREE.Color(0x5f6e34), moss * 0.85).multiplyScalar(0.9 + r() * 0.2); col.push(base.r, base.g, base.b); }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); return prep(g); }
 function makeLogGeo() { const g = new THREE.CylinderGeometry(0.28, 0.32, 5, 8); g.rotateZ(Math.PI / 2); g.translate(0, 0.25, 0); solid(g, 0x4d3f31, 0.15); return prep(g); }
 
 const VEG_TILES = [];
@@ -57502,7 +57506,7 @@ function buildVegetation(scene, quality) {
   const mBroadLeaf = new THREE.MeshStandardMaterial({ vertexColors: true, map: leafTexture(), alphaTest: 0.45, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.8, envMapIntensity: 0.55 });
   const mPineLeaf = new THREE.MeshStandardMaterial({ vertexColors: true, map: needleTexture(), alphaTest: 0.35, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.9, envMapIntensity: 0.45 });
   mBroadLeaf.map.colorSpace = THREE.NoColorSpace; mPineLeaf.map.colorSpace = THREE.NoColorSpace;
-  const mRock = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, envMapIntensity: 0.6 });
+  const rockTex = makeRockTexture(); rockTex.repeat.set(1.5, 1.5); const mRock = new THREE.MeshStandardMaterial({ vertexColors: true, map: rockTex, roughness: 0.92, envMapIntensity: 0.6 });
   const kinds = [
     { g: pine.trunk, m: mTrunk, k: 'pine' }, { g: pine.leaves, m: mPineLeaf, k: 'pine', leaf: true },
     { g: broad.trunk, m: mTrunk, k: 'broad' }, { g: broad.leaves, m: mBroadLeaf, k: 'broad', leaf: true },
@@ -57529,8 +57533,8 @@ function buildVegetation(scene, quality) {
       if (R() < 0.18) { const b = 0.6 + R() * 0.8; s.set(b, b, b); addInst('bush', jx + (R() - 0.5) * 4, jz + (R() - 0.5) * 4, s, R() * 6.28); }
     } else if (r < 0.035 + smooth(-0.15, 0.0, fo) * 0.12 && sl < 0.8) {
       const b = 0.6 + R() * 1.0; s.set(b, b, b); addInst('bush', jx, jz, s, R() * 6.28);
-    } else if (r > 0.993 || (sl > 0.65 && r > 0.93)) {
-      const b = 0.5 + R() * 1.8; s.set(b, b * (0.7 + R() * 0.5), b); addInst('rock', jx, jz, s, R() * 6.28, -0.2 * b); if (b > 0.9) addCollider(jx, jz, b * 1.1, b);
+    } else if (r > 0.986 || (sl > 0.6 && r > 0.9)) {
+      const b = R() < 0.45 ? 0.15 + R() * 0.3 : 0.5 + R() * 1.8; s.set(b, b * (0.7 + R() * 0.5), b); addInst('rock', jx, jz, s, R() * 6.28, -0.2 * b); if (b > 0.9) addCollider(jx, jz, b * 1.1, b);
     } else if (fo > 0.1 && r > 0.975) { s.set(1, 1, 1); addInst('log', jx, jz, s, R() * 6.28, 0); }
   }
   // versions simplifiées pour le lointain (LOD)
@@ -57597,9 +57601,11 @@ function updateGrass(px, pz) {
     if (Math.hypot(x - CAMP.x, z - CAMP.z) < 9 || baseSpots().some(b => Math.hypot(x - b.x, z - b.z) < 9)) continue;
     const sc = 0.7 + hash2(gx * 3, gz) * 0.9 * (1 - smooth(rad * 0.7, rad, d) * 0.6);
     q.setFromAxisAngle(up, hsh * 6.28); s.set(sc, sc * (0.8 + hash2(gx, gz * 5) * 0.6), sc); m4.compose(p.set(x, h - 0.03, z), q, s);
+    const dry = clamp(fbm(x * 0.006 + 40, z * 0.006 - 13, 3) * 1.6 + 0.35 + (h > 45 ? (h - 45) * 0.01 : 0) - fo * 0.6, 0, 1); const jit = 0.92 + hash2(gx * 7, gz * 3) * 0.16;
+    GRASS.col = GRASS.col || new THREE.Color(); GRASS.col.setRGB(lerp(0.95, 1.45, dry) * jit, lerp(1.0, 1.12, dry) * jit, lerp(0.92, 0.55, dry) * jit); GRASS.mesh.setColorAt(n, GRASS.col);
     GRASS.mesh.setMatrixAt(n++, m4);
   }
-  GRASS.mesh.count = n; GRASS.mesh.instanceMatrix.needsUpdate = true;
+  GRASS.mesh.count = n; GRASS.mesh.instanceMatrix.needsUpdate = true; if (GRASS.mesh.instanceColor) GRASS.mesh.instanceColor.needsUpdate = true;
 }
 
 // ---------- camp + miradors ----------
@@ -60815,7 +60821,7 @@ function dogPush() {
 // Mise à jour automatique : au lancement, le jeu regarde s'il existe une version plus récente en ligne.
 // Si oui il la télécharge et la lance (les sauvegardes restent les mêmes). Sans Internet, il lance la version du fichier.
 (function () {
-  var V = '7.5', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
+  var V = '7.6', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () { }); } catch (e) { } }
   function run() { var s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('ts-game').textContent; document.body.appendChild(s); }
   function newer(a, b) { a = String(a).split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < Math.max(a.length, b.length); i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; }
