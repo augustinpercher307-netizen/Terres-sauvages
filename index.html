@@ -56753,7 +56753,7 @@ const ASSETS = {
 // =====================================================================
 //  TERRES SAUVAGES — données du jeu
 // =====================================================================
-const GAME_VERSION = '6.7';
+const GAME_VERSION = '6.8';
 const SAVE_KEY = 'terres_sauvages_save_v2';
 const MAX_LEVEL = 100;
 const SEASON_OPTIONS = [21, 60, 150, 0]; // 0 = illimitée
@@ -59319,7 +59319,7 @@ function row(txt, buttons = '', sub = '') { return `<div class="row"><span class
 function renderPanel() {
   const P = UI.panel; let h = '';
   if (P === 'camp') h = campPanel(); else if (P === 'pause') h = pausePanel(); else if (P === 'options') h = optionsPanel(); else if (P === 'help') h = helpPanel();
-  else if (P === 'harvest') h = harvestPanel(UI.data); else if (P === 'bag') h = bagPanel(); else if (P === 'map') h = mapPanel(); else if (P === 'end') h = endPanel(UI.data); else if (P === 'inspect') h = inspectPanel(UI.data); else if (P === 'confirmNew') h = confirmPanel(); else if (P === 'net') h = netPanel();
+  else if (P === 'harvest') h = harvestPanel(UI.data); else if (P === 'bag') h = bagPanel(); else if (P === 'map') h = mapPanel(); else if (P === 'end') h = endPanel(UI.data); else if (P === 'inspect') h = inspectPanel(UI.data); else if (P === 'confirmNew') h = confirmPanel(); else if (P === 'net') h = netPanel(); else if (P === 'xfer') h = xferPanel();
   $('panel-inner').innerHTML = h; if (P === 'map') drawMap(); if (P === 'inspect') startInspectView(UI.data);
   if (GAME.vr) VR.menuDirty = true;
 }
@@ -59441,7 +59441,7 @@ function bagPanel() {
   h += `</div><div class="actions">${btn('Fermer', 'close', '', 'primary')}</div>`; return h;
 }
 function pausePanel() {
-  return `<h2>Pause</h2><div class="sub">Jour ${SAVE.day}/${seasonTxt()} · ${timeStr()} · ${fmt(SAVE.money)} €</div><div class="menu-col">${btn('Reprendre', 'close', '', 'primary')}${btn('Sac à dos', 'open', 'bag')}${btn('Carte', 'open', 'map')}${btn('Retourner au camp (+30 min)', 'toCamp')}${btn(NET.active ? 'Partie entre amis (' + (NET.peers.size + 1) + ' joueurs)' : 'Jouer entre amis', 'open', 'net')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}${btn('Sauvegarder', 'save')}${btn('Menu principal', 'mainMenu')}</div>`;
+  return `<h2>Pause</h2><div class="sub">Jour ${SAVE.day}/${seasonTxt()} · ${timeStr()} · ${fmt(SAVE.money)} €</div><div class="menu-col">${btn('Reprendre', 'close', '', 'primary')}${btn('Sac à dos', 'open', 'bag')}${btn('Carte', 'open', 'map')}${btn('Retourner au camp (+30 min)', 'toCamp')}${btn(NET.active ? 'Partie entre amis (' + (NET.peers.size + 1) + ' joueurs)' : 'Jouer entre amis', 'open', 'net')}${btn('Transférer ma partie', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}${btn('Sauvegarder', 'save')}${btn('Menu principal', 'mainMenu')}</div>`;
 }
 function optionsPanel() {
   const S = SETTINGS; const pct = (v) => Math.round(v * 100) + ' %';
@@ -59597,7 +59597,7 @@ function showMainMenu() {
   $('panel-inner').innerHTML = `<div class="title"><div class="t1">TERRES SAUVAGES</div><div class="t2">Simulateur de chasse réaliste · PC & réalité virtuelle</div></div><div class="menu-col">
     ${has ? btn('Continuer la saison', 'continue', '', 'primary') : ''}${btn('Nouvelle saison', 'confirmNew', '', has ? '' : 'primary')}
     ${btn(vrOk ? 'Jouer en réalité virtuelle' : 'Réalité virtuelle : casque non détecté', 'vr', '', '', !vrOk)}
-    ${btn('Jouer entre amis (partie privée)', 'netMenu')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}</div>
+    ${btn('Jouer entre amis (partie privée)', 'netMenu')}${btn('Transférer ma partie (PC ↔ téléphone)', 'xferOpen')}${btn('Options', 'open', 'options')}${btn('Commandes', 'open', 'help')}</div>
     <div class="foot">Réserve de 2,9 × 2,9 km en 9 zones · 14 espèces dont 5 oiseaux · niveaux 1 à 100 · v${GAME_VERSION}</div>`;
   $('panel').style.display = 'flex'; $('panel').classList.add('main'); if (GAME.vr) VR.menuDirty = true;
 }
@@ -60301,6 +60301,69 @@ Object.assign(ACTIONS, {
   netStop: () => { if (NET.role === 'host') netBroadcast({ t: 'ann', m: 'L\'hôte a arrêté la partie' }); netLeave(); toast('Partie entre amis terminée'); if (GAME.inGame) openPanel('net'); },
 });
 
+// ---------- Transférer sa partie d'un appareil à l'autre (PC ↔ Android) avec un code à 5 chiffres ----------
+const XFER = { code: null, ws: null, msg: '', got: null };
+function xferBundle() {
+  if (SAVE && GAME.inGame) writeSave(); const out = { v: 1, keys: {} };
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(SAVE_KEY) && !k.endsWith('_settings')) out.keys[k] = localStorage.getItem(k); } } catch (e) { }
+  return out;
+}
+function xferChunks(dc, txt) { const N = 15000, n = Math.ceil(txt.length / N); for (let i = 0; i < n; i++) dc.send(JSON.stringify({ i, n, d: txt.slice(i * N, (i + 1) * N) })); }
+async function xferSendStart() { // cet appareil envoie sa partie
+  XFER.msg = 'Création du code…'; renderPanel();
+  for (let k = 0; k < 4; k++) {
+    const code = String(10000 + Math.floor(Math.random() * 90000));
+    try {
+      XFER.ws = await netBroker(PEER_PREFIX + 't' + code, async (m, ws) => {
+        const p = m.payload || {};
+        if (m.type === 'OFFER' && p.get) {
+          const pc = new RTCPeerConnection({ iceServers: NET_ICE }); const dc = pc.createDataChannel('tr', { ordered: true }); XFER.pc = pc;
+          dc.onopen = async () => { const txt = await netEncode(xferBundle()); xferChunks(dc, txt); XFER.msg = '✅ Partie envoyée ! Vous pouvez fermer cette fenêtre.'; if (UI.panel === 'xfer') renderPanel(); };
+          await pc.setLocalDescription(await pc.createOffer()); await netWaitIce(pc); brokerSend(ws, m.src, { sdp: pc.localDescription.sdp });
+        } else if (m.type === 'ANSWER' && p.sdp && XFER.pc) { try { await XFER.pc.setRemoteDescription({ type: 'answer', sdp: p.sdp }); } catch (e) { } }
+      });
+      XFER.code = code; XFER.msg = ''; renderPanel(); return;
+    } catch (e) { if (!/TAKEN/.test(e.message)) break; }
+  }
+  XFER.msg = 'Impossible de créer un code : vérifiez la connexion Internet (un réseau d\'entreprise peut bloquer).'; renderPanel();
+}
+async function xferGet(code) { // cet appareil reçoit une partie
+  code = String(code || '').replace(/\D/g, ''); if (code.length !== 5) { XFER.msg = 'Le code doit faire 5 chiffres.'; renderPanel(); return; }
+  XFER.msg = 'Recherche de l\'autre appareil…'; renderPanel(); const parts = [];
+  let ws; try {
+    ws = await netBroker(PEER_PREFIX + 'r' + Math.random().toString(36).slice(2, 10), async (m, w) => {
+      const p = m.payload || {};
+      if (m.type === 'OFFER' && p.sdp) {
+        const pc = new RTCPeerConnection({ iceServers: NET_ICE }); XFER.pc = pc; XFER.msg = 'Réception de la partie…'; renderPanel();
+        pc.ondatachannel = (ev) => { ev.channel.onmessage = async (e2) => { const c = JSON.parse(e2.data); parts[c.i] = c.d; if (parts.filter(x => x !== undefined).length === c.n) {
+          try { XFER.got = await netDecode(parts.join('')); const s = XFER.got.keys[SAVE_KEY] ? JSON.parse(XFER.got.keys[SAVE_KEY]) : null; XFER.msg = s ? `Partie reçue : niveau ${xferLevel(s)}, ${fmt(s.money || 0)} €, jour ${s.day || 1}. Voulez-vous remplacer la partie de cet appareil ?` : 'Partie reçue (parties entre amis uniquement).'; } catch (err) { XFER.msg = 'La partie reçue est illisible, réessayez.'; }
+          renderPanel(); try { w.close(); } catch (e3) { } } }; };
+        await pc.setRemoteDescription({ type: 'offer', sdp: p.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await netWaitIce(pc); brokerSend(w, m.src, { sdp: pc.localDescription.sdp }, 'ANSWER');
+      } else if (m.type === 'EXPIRE' || m.type === 'LEAVE') { XFER.msg = 'Aucun appareil n\'attend avec le code ' + code + '.'; renderPanel(); }
+    });
+  } catch (e) { XFER.msg = 'Impossible de joindre le service (pas d\'Internet ?).'; renderPanel(); return; }
+  brokerSend(ws, PEER_PREFIX + 't' + code, { get: true });
+  setTimeout(() => { if (!XFER.got && /Recherche/.test(XFER.msg)) { XFER.msg = 'Pas de réponse pour le code ' + code + '. Vérifiez le code et que l\'autre appareil affiche bien son code.'; if (UI.panel === 'xfer') renderPanel(); } }, 12000);
+}
+function xferLevel(s) { let l = 1; for (let i = 0; i < LEVEL_XP.length; i++) if ((s.xp || 0) >= LEVEL_XP[i]) l = i + 1; return l; }
+function xferPanel() {
+  let h = `<h2>Transférer ma partie</h2><div class="sub">Pour continuer votre partie sur un autre appareil (PC ↔ téléphone). Les deux appareils doivent avoir Internet. Tout est copié : niveau, argent, armes, records et parties entre amis.</div><div class="scroll">`;
+  if (XFER.msg) h += `<div class="sub" style="color:#ffd27a">${XFER.msg}</div>`;
+  if (XFER.got) return h + `</div><div class="actions">${btn('Oui, remplacer par la partie reçue', 'xferApply', '', 'primary')}${btn('Annuler', 'xferCancel')}</div>`;
+  if (XFER.code) h += `<div style="text-align:center;margin:10px 0"><div class="sub">Sur l'autre appareil, ouvrez « Transférer ma partie » → « Recevoir » et tapez :</div><div style="font-size:54px;font-weight:800;letter-spacing:12px;color:#f2b84b">${XFER.code}</div><div class="sub">Laissez cette fenêtre ouverte pendant le transfert.</div></div>`;
+  else h += `<h3>Envoyer la partie de cet appareil</h3>` + row('Créer un code à 5 chiffres', btn('Envoyer', 'xferSend', '', 'primary'), 'À faire sur l\'appareil qui a la partie la plus avancée.');
+  h += `<h3>Recevoir une partie ici</h3>` + row('Code affiché sur l\'autre appareil', `<input id="xferin" maxlength="5" inputmode="numeric" placeholder="12345" style="width:110px;font-size:22px;letter-spacing:4px;text-align:center">` + btn('Recevoir', 'xferGet', '', 'primary'), 'La partie de cet appareil sera remplacée (on vous demandera de confirmer).');
+  return h + `</div><div class="actions">${btn('Fermer', 'xferClose', '', 'primary')}</div>`;
+}
+Object.assign(ACTIONS, {
+  xferOpen: () => { XFER.msg = ''; XFER.got = null; openPanel('xfer'); },
+  xferSend: () => xferSendStart(),
+  xferGet: () => xferGet($('xferin').value),
+  xferApply: () => { try { for (const [k, v] of Object.entries(XFER.got.keys)) localStorage.setItem(k, v); } catch (e) { toast('Impossible d\'enregistrer la partie reçue.'); return; } XFER.got = null; toast('Partie reçue ! Redémarrage…', 3); setTimeout(() => location.reload(), 600); },
+  xferCancel: () => { XFER.got = null; XFER.msg = ''; renderPanel(); },
+  xferClose: () => { try { XFER.ws && XFER.ws.close(); } catch (e) { } XFER.ws = null; XFER.code = null; XFER.msg = ''; closePanel(); },
+});
+
 // =====================================================================
 //  DÉMARRAGE, ENTRÉES, BOUCLE PRINCIPALE
 // =====================================================================
@@ -60614,7 +60677,7 @@ function dogPush() {
 // Mise à jour automatique : au lancement, le jeu regarde s'il existe une version plus récente en ligne.
 // Si oui il la télécharge et la lance (les sauvegardes restent les mêmes). Sans Internet, il lance la version du fichier.
 (function () {
-  var V = '6.7', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
+  var V = '6.8', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () { }); } catch (e) { } }
   function run() { var s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('ts-game').textContent; document.body.appendChild(s); }
   function newer(a, b) { a = String(a).split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < Math.max(a.length, b.length); i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; }
