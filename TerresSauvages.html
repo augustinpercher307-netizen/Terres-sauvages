@@ -67,7 +67,7 @@ body.nomm #minimap,body.nomm #mm-legend{display:none}
 #panel{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:rgba(5,8,6,.55);backdrop-filter:blur(3px)}
 #panel.main{background:linear-gradient(90deg,rgba(5,8,6,.85) 0,rgba(5,8,6,.45) 45%,rgba(5,8,6,0) 100%);backdrop-filter:none;justify-content:flex-start;padding-left:7vw}
 #panel-inner{width:min(980px,94vw);max-height:90vh;display:flex;flex-direction:column;background:rgba(16,20,17,.94);border:1px solid rgba(242,184,75,.3);border-radius:16px;padding:26px 30px;box-shadow:0 20px 60px rgba(0,0,0,.6);position:relative}
-#panel.main #panel-inner{width:min(460px,90vw);background:transparent;border:none;box-shadow:none}
+#panel-inner{position:relative}.closex{position:absolute;top:10px;right:12px;z-index:3;padding:8px 14px;font-size:15px;border-radius:10px;background:rgba(242,184,75,.15);border:1px solid rgba(242,184,75,.6);color:#f2d39b}#panel.main #panel-inner{width:min(460px,90vw);background:transparent;border:none;box-shadow:none}
 .title .t1{font-family:Cinzel,Georgia,serif;font-size:58px;font-weight:700;color:#f2d39b;letter-spacing:4px;line-height:1;text-shadow:0 4px 20px rgba(0,0,0,.7)}
 .title .t2{color:#c9c2ae;margin:10px 0 34px;font-size:15px;letter-spacing:1px}
 .foot{margin-top:30px;font-size:12px;color:#8d887a}
@@ -56753,7 +56753,7 @@ const ASSETS = {
 // =====================================================================
 //  TERRES SAUVAGES — données du jeu
 // =====================================================================
-const GAME_VERSION = '7.0';
+const GAME_VERSION = '7.2';
 const SAVE_KEY = 'terres_sauvages_save_v2';
 const MAX_LEVEL = 100;
 const SEASON_OPTIONS = [21, 60, 150, 0]; // 0 = illimitée
@@ -58805,7 +58805,6 @@ function updatePlayer(dt) {
   const wantRun = !P.vehicle && (GAME.vr ? VR.run : KD('run')) && !GUN.aiming && P.stance === 'stand' && !P.exhausted && mz > 0;
   if (P.stamina <= 0.02 && !P.exhausted) { P.exhausted = true; if (KD('run')) toast('À bout de souffle : vous marchez le temps de récupérer.'); } if (P.exhausted && P.stamina > 0.3) P.exhausted = false;
   if (P.tripod && len > 0.2) { P.tripod = false; toast('Trépied rangé.'); }
-  if (P.onStand && len > 0.2) leaveStand();
   let speed = 0;
   if (len > 0.1 && !P.onStand) {
     const V = P.vehicle ? VEHICLES[P.vehicle] : null;
@@ -59295,6 +59294,7 @@ function updatePrompt() {
     else if (a) t = `${k} : prélever ${a.name.toLowerCase()} (${SPECIES[a.sp].name})`;
     else if (camp) t = `${k} : ouvrir ${nb.main ? 'le camp' : 'la ' + nb.name} (boutique, atelier, cuisine, repos)`;
     else if (nb && nb.locked) t = `🔒 ${nb.b.name} : ouverte au niveau ${nb.b.zone.lvl}`;
+    else if (PLAYER.onStand) t = `${k} : descendre du mirador`;
     else if (s && !PLAYER.onStand) t = `${k} : monter au ${s.name.toLowerCase()}`;
   }
   $('prompt').textContent = t; $('prompt').style.display = t ? 'block' : 'none'; UI.promptText = t;
@@ -59312,7 +59312,8 @@ function updateBinocInfo() {
 }
 
 // ---------- panneaux ----------
-function openPanel(kind, data) { $('panel').classList.remove('main'); UI.panel = kind; UI.data = data; GAME.state = kind === 'menu' ? 'menu' : 'panel'; if (document.pointerLockElement) document.exitPointerLock(); renderPanel(); $('panel').style.display = 'flex'; setOverlay(null); GUN.aiming = false; GUN.binoc = false; }
+function openPanel(kind, data) {
+  if (kind === 'map' && UI.panel !== 'map') { MAPV.zoom = Math.max(MAPV.zoom, 2.6); MAPV.cx = PLAYER.x; MAPV.cz = PLAYER.z; } $('panel').classList.remove('main'); UI.panel = kind; UI.data = data; GAME.state = kind === 'menu' ? 'menu' : 'panel'; if (document.pointerLockElement) document.exitPointerLock(); renderPanel(); $('panel').style.display = 'flex'; setOverlay(null); GUN.aiming = false; GUN.binoc = false; }
 function closePanel() { if (!GAME.inGame) { showMainMenu(); return; } $('panel').style.display = 'none'; UI.panel = null; GAME.state = 'play'; if (!GAME.vr) lockPointer(); }
 function btn(label, act, arg = '', cls = '', dis = false) { return `<button class="${cls}" data-act="${act}" data-arg="${arg}" ${dis ? 'disabled' : ''}>${label}</button>`; }
 function row(txt, buttons = '', sub = '') { return `<div class="row"><span class="txt">${txt}${sub ? `<small>${sub}</small>` : ''}</span><span class="btns">${buttons}</span></div>`; }
@@ -59320,6 +59321,7 @@ function renderPanel() {
   const P = UI.panel; let h = '';
   if (P === 'camp') h = campPanel(); else if (P === 'pause') h = pausePanel(); else if (P === 'options') h = optionsPanel(); else if (P === 'help') h = helpPanel();
   else if (P === 'harvest') h = harvestPanel(UI.data); else if (P === 'bag') h = bagPanel(); else if (P === 'map') h = mapPanel(); else if (P === 'end') h = endPanel(UI.data); else if (P === 'inspect') h = inspectPanel(UI.data); else if (P === 'confirmNew') h = confirmPanel(); else if (P === 'net') h = netPanel(); else if (P === 'xfer') h = xferPanel();
+  if (P !== 'menu' && P !== 'harvest' && P !== 'end') h = `<button class="closex" data-act="${P === 'options' || P === 'help' ? 'back' : 'close'}" title="Retour">✕ Retour</button>` + h;
   $('panel-inner').innerHTML = h; if (P === 'map') drawMap(); if (P === 'inspect') startInspectView(UI.data);
   if (GAME.vr) VR.menuDirty = true;
 }
@@ -60595,16 +60597,19 @@ function initTouch() {
   .tb small{font-size:10px}
   body.touch #crosshair{transform:translate(-50%,-50%)}
   body.touch #hud-br{bottom:auto;top:210px}
-  body.touch #prompt{bottom:auto;top:62%}`;
+  body.touch #prompt{bottom:auto;top:62%}
+  body.touch #hud-bl{left:104px;transform:scale(.82);transform-origin:bottom left}`;
   document.head.appendChild(css);
   const T = document.createElement('div'); T.id = 'touch';
   T.innerHTML = `<div id="tjoy"><div id="tbase"><div id="tknob"></div></div></div><div id="tlook"></div>`;
   // boutons : [libellé, action, droite (px), bas (px), type]
-  const B = [['TIRER', 'fire', 26, 120, 'big'], ['Viser', 'aim', 124, 70], ['Souffle', 'breath', 124, 150, 'hold'], ['Recharger', 'reload', 26, 30], ['Action<br><small>E</small>', 'use', 200, 30],
-    ['Jumelles', 'binoc', 200, 110], ['Accroupi', 'crouch', 276, 30], ['Couché', 'prone', 276, 110], ['Arme', 'swap', 352, 30], ['Courir', 'run', 352, 110, 'hold'],
-    ['Sac', 'bag', 14, -1], ['Carte', 'map', 82, -1], ['Pause', 'pause', 150, -1], ['Zoom +', 'zin', 124, 230], ['Zoom −', 'zout', 200, 230], ['Appeau', 'call', 218, -1], ['Chien', 'dog', 286, -1], ['Véhicule', 'vehicle', 354, -1], ['Lampe', 'lamp', 422, -1]];
+  // à droite (pouce droit) : tir et visée ; à gauche (pouce gauche, près du joystick) : souffle et course
+  const B = [['TIRER', 'fire', 26, 120, 'big'], ['Viser', 'aim', 124, 70], ['Recharger', 'reload', 26, 30], ['Action<br><small>E</small>', 'use', 200, 30],
+    ['Jumelles', 'binoc', 124, 150], ['Accroupi', 'crouch', 276, 30], ['Couché', 'prone', 200, 110], ['Arme', 'swap', 276, 110],
+    ['Souffle<br><small>(appuyé)</small>', 'breath', -18, 150, 'hold'], ['Courir', 'run', -18, 70, 'toggle'],
+    ['Sac', 'bag', 14, -1], ['Carte', 'map', 82, -1], ['Pause', 'pause', 150, -1], ['⚙ Réglages', 'options', 490, -1], ['Zoom +', 'zin', 124, 230], ['Zoom −', 'zout', 200, 230], ['Appeau', 'call', 218, -1], ['Chien', 'dog', 286, -1], ['Véhicule', 'vehicle', 354, -1], ['Lampe', 'lamp', 422, -1]];
   for (const [l, a, r, b, t] of B) {
-    const e = document.createElement('div'); e.className = 'tb' + (t === 'big' ? ' big' : ''); e.innerHTML = l; e.dataset.a = a; e.style.right = r + 'px';
+    const e = document.createElement('div'); e.className = 'tb' + (t === 'big' ? ' big' : ''); e.innerHTML = l; e.dataset.a = a; if (r < 0) { e.style.left = (-r) + 'px'; e.style.width = e.style.height = '70px'; } else e.style.right = r + 'px';
     if (b < 0) { e.style.top = '8px'; e.style.width = '62px'; e.style.height = '40px'; e.style.borderRadius = '10px'; } else e.style.bottom = b + 'px';
     e.addEventListener('touchstart', (ev) => { ev.preventDefault(); ev.stopPropagation(); AUDIO.init(); touchBtn(a, true, e, t); }, { passive: false });
     e.addEventListener('touchend', (ev) => { ev.preventDefault(); ev.stopPropagation(); touchBtn(a, false, e, t); }, { passive: false });
@@ -60613,34 +60618,38 @@ function initTouch() {
   document.body.appendChild(T);
   // joystick de déplacement (apparaît sous le pouce)
   const joy = $('tjoy'), base = $('tbase'), knob = $('tknob');
-  joy.addEventListener('touchstart', (ev) => { ev.preventDefault(); const t = ev.changedTouches[0]; TOUCH.joy = { id: t.identifier, x: t.clientX, y: t.clientY }; const r = joy.getBoundingClientRect(); base.style.left = (t.clientX - r.left) + 'px'; base.style.top = (t.clientY - r.top) + 'px'; base.style.display = 'block'; }, { passive: false });
-  joy.addEventListener('touchmove', (ev) => { ev.preventDefault(); for (const t of ev.changedTouches) if (TOUCH.joy && t.identifier === TOUCH.joy.id) { let dx = (t.clientX - TOUCH.joy.x) / 55, dy = (t.clientY - TOUCH.joy.y) / 55; const l = Math.hypot(dx, dy); if (l > 1) { dx /= l; dy /= l; } TOUCH.jx = dx; TOUCH.jy = dy; knob.style.transform = `translate(calc(-50% + ${dx * 40}px), calc(-50% + ${dy * 40}px))`; touchMoveKeys(); } }, { passive: false });
-  const jend = (ev) => { for (const t of ev.changedTouches) if (TOUCH.joy && t.identifier === TOUCH.joy.id) { TOUCH.joy = null; TOUCH.jx = TOUCH.jy = 0; base.style.display = 'none'; knob.style.transform = 'translate(-50%,-50%)'; touchMoveKeys(); } };
+  // en visée (lunette, jumelles) : glisser à gauche bouge aussi le viseur, jamais le chasseur
+  joy.addEventListener('touchstart', (ev) => { ev.preventDefault(); const t = ev.changedTouches[0]; if (GUN.aiming || GUN.binoc) { TOUCH.look = { id: t.identifier, x: t.clientX, y: t.clientY }; return; } TOUCH.joy = { id: t.identifier, x: t.clientX, y: t.clientY }; const r = joy.getBoundingClientRect(); base.style.left = (t.clientX - r.left) + 'px'; base.style.top = (t.clientY - r.top) + 'px'; base.style.display = 'block'; }, { passive: false });
+  joy.addEventListener('touchmove', (ev) => { ev.preventDefault(); for (const t of ev.changedTouches) if (TOUCH.look && t.identifier === TOUCH.look.id) touchLook(t); else if (TOUCH.joy && t.identifier === TOUCH.joy.id) { let dx = (t.clientX - TOUCH.joy.x) / 55, dy = (t.clientY - TOUCH.joy.y) / 55; const l = Math.hypot(dx, dy); if (l > 1) { dx /= l; dy /= l; } TOUCH.jx = dx; TOUCH.jy = dy; knob.style.transform = `translate(calc(-50% + ${dx * 40}px), calc(-50% + ${dy * 40}px))`; touchMoveKeys(); } }, { passive: false });
+  const jend = (ev) => { for (const t of ev.changedTouches) if (TOUCH.look && t.identifier === TOUCH.look.id) TOUCH.look = null; for (const t of ev.changedTouches) if (TOUCH.joy && t.identifier === TOUCH.joy.id) { TOUCH.joy = null; TOUCH.jx = TOUCH.jy = 0; base.style.display = 'none'; knob.style.transform = 'translate(-50%,-50%)'; touchMoveKeys(); } };
   joy.addEventListener('touchend', jend); joy.addEventListener('touchcancel', jend);
   // regard : glisser le doigt
   const look = $('tlook');
   look.addEventListener('touchstart', (ev) => { ev.preventDefault(); const t = ev.changedTouches[0]; TOUCH.look = { id: t.identifier, x: t.clientX, y: t.clientY }; }, { passive: false });
-  look.addEventListener('touchmove', (ev) => { ev.preventDefault(); if (GAME.state !== 'play') return; for (const t of ev.changedTouches) if (TOUCH.look && t.identifier === TOUCH.look.id) {
+  look.addEventListener('touchmove', (ev) => { ev.preventDefault(); for (const t of ev.changedTouches) if (TOUCH.look && t.identifier === TOUCH.look.id) touchLook(t); }, { passive: false });
+  function touchLook(t) { if (GAME.state !== 'play') return; {
     const z = GUN.binoc ? 8 : (GUN.aiming && GUN.scope && GUN.scope.max > 1 ? GUN.zoom : 1); const s = 0.0042 * SETTINGS.sens / Math.sqrt(z) * (z > 1 ? SETTINGS.scopeSens : 1);
-    PLAYER.yaw -= (t.clientX - TOUCH.look.x) * s; PLAYER.pitch = clamp(PLAYER.pitch - (t.clientY - TOUCH.look.y) * s * (SETTINGS.invertY ? -1 : 1), -1.45, 1.45); TOUCH.look.x = t.clientX; TOUCH.look.y = t.clientY; } }, { passive: false });
+    PLAYER.yaw -= (t.clientX - TOUCH.look.x) * s; PLAYER.pitch = clamp(PLAYER.pitch - (t.clientY - TOUCH.look.y) * s * (SETTINGS.invertY ? -1 : 1), -1.45, 1.45); TOUCH.look.x = t.clientX; TOUCH.look.y = t.clientY; } }
   const lend = (ev) => { for (const t of ev.changedTouches) if (TOUCH.look && t.identifier === TOUCH.look.id) TOUCH.look = null; };
   look.addEventListener('touchend', lend); look.addEventListener('touchcancel', lend);
   // plein écran + paysage
   try { const d = document.documentElement; if (d.requestFullscreen && !document.fullscreenElement) d.requestFullscreen().then(() => { try { screen.orientation.lock('landscape').catch(() => { }); } catch (e) { } }).catch(() => { }); } catch (e) { }
   if (QUALITY[SETTINGS.quality] && ['haute', 'ultra', 'cinema'].includes(SETTINGS.quality) && !SETTINGS.touchSet) { SETTINGS.quality = 'basse'; SETTINGS.touchSet = true; saveSettings(); try { applyQuality(); } catch (e) { } toast('Téléphone détecté : qualité Basse pour rester fluide (modifiable dans Options).', 5); }
-  setInterval(() => { for (const e of T.querySelectorAll('.tb')) { const a = e.dataset.a; e.classList.toggle('on', (a === 'aim' && GUN.aiming) || (a === 'binoc' && GUN.binoc) || (a === 'crouch' && PLAYER.stance === 'crouch') || (a === 'prone' && PLAYER.stance === 'prone') || (a === 'lamp' && !!LAMP && LAMP.intensity > 0)); if (a === 'zin' || a === 'zout') e.style.display = GUN.aiming && GUN.scope && GUN.scope.max > 1 ? 'flex' : 'none'; } }, 250);
+  setInterval(() => { for (const e of T.querySelectorAll('.tb')) { const a = e.dataset.a; e.classList.toggle('on', (a === 'aim' && GUN.aiming) || (a === 'binoc' && GUN.binoc) || (a === 'crouch' && PLAYER.stance === 'crouch') || (a === 'prone' && PLAYER.stance === 'prone') || (a === 'lamp' && !!LAMP && LAMP.intensity > 0) || (a === 'run' && TOUCH.runOn) || (a === 'breath' && KEYS[KB('breath')])); if (a === 'zin' || a === 'zout') e.style.display = GUN.aiming && GUN.scope && GUN.scope.max > 1 ? 'flex' : 'none'; } }, 250);
 }
 function touchMoveKeys() {
-  const want = { fwd: TOUCH.jy < -0.3, back: TOUCH.jy > 0.3, left: TOUCH.jx < -0.3, right: TOUCH.jx > 0.3, run: Math.hypot(TOUCH.jx, TOUCH.jy) > 0.97 && TOUCH.jy < -0.5 };
+  const want = { fwd: TOUCH.jy < -0.3, back: TOUCH.jy > 0.3, left: TOUCH.jx < -0.3, right: TOUCH.jx > 0.3 };
   for (const [a, v] of Object.entries(want)) if (!!TOUCH.held[a] !== v) { TOUCH.held[a] = v; KEYS[KB(a)] = v; }
 }
 function touchBtn(a, down, el, type) {
-  if (type === 'hold') { KEYS[KB(a)] = down; return; }
+  if (type === 'hold') { KEYS[KB(a)] = down; el.classList.toggle('on', down); return; }
+  if (type === 'toggle') { if (down) { TOUCH.runOn = !TOUCH.runOn; KEYS[KB(a)] = TOUCH.runOn; toast(TOUCH.runOn ? 'Course activée (touchez à nouveau pour marcher)' : 'Course désactivée', 1.5); } return; }
   if (!down) return; el.classList.add('on'); setTimeout(() => el.classList.remove('on'), 150);
+  if (a === 'options') { openPanel('options'); return; }
   if (a === 'pause') { if (GAME.state === 'play') openPanel('pause'); else if (GAME.state === 'panel') closePanel(); return; }
   if (GAME.state !== 'play') { if (a === 'bag' && UI.panel === 'bag') closePanel(); if (a === 'map' && UI.panel === 'map') closePanel(); return; }
   if (a === 'fire') { fireDesktop(); return; }
-  if (a === 'aim') { if (!GUN.knife) { GUN.aiming = !GUN.aiming; GUN.binoc = false; } return; }
+  if (a === 'aim') { if (!GUN.knife) { GUN.aiming = !GUN.aiming; GUN.binoc = false; if (GUN.aiming) { TOUCH.joy = null; TOUCH.jx = TOUCH.jy = 0; touchMoveKeys(); $('tbase').style.display = 'none'; } } return; }
   if (a === 'swap') { const cur = SAVE.slots.indexOf(GUN.wid); touchTap(cur === 0 && SAVE.slots[1] ? 'w2' : 'w1'); return; }
   if (a === 'zin' || a === 'zout') { if (GUN.scope && GUN.scope.max > 1) { GUN.zoom = clamp(GUN.zoom * (a === 'zin' ? 1.25 : 0.8), GUN.scope.min, GUN.scope.max); updateHUD(true); } return; }
   touchTap(a);
@@ -60754,7 +60763,7 @@ function dogPush() {
 // Mise à jour automatique : au lancement, le jeu regarde s'il existe une version plus récente en ligne.
 // Si oui il la télécharge et la lance (les sauvegardes restent les mêmes). Sans Internet, il lance la version du fichier.
 (function () {
-  var V = '7.0', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
+  var V = '7.2', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () { }); } catch (e) { } }
   function run() { var s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('ts-game').textContent; document.body.appendChild(s); }
   function newer(a, b) { a = String(a).split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < Math.max(a.length, b.length); i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; }
