@@ -56753,7 +56753,7 @@ const ASSETS = {
 // =====================================================================
 //  TERRES SAUVAGES — données du jeu
 // =====================================================================
-const GAME_VERSION = '7.3';
+const GAME_VERSION = '7.4';
 const SAVE_KEY = 'terres_sauvages_save_v2';
 const MAX_LEVEL = 100;
 const SEASON_OPTIONS = [21, 60, 150, 0]; // 0 = illimitée
@@ -57422,7 +57422,7 @@ function makePineGeo(seed) {
   const r = mulberry32(seed); const parts = [];
   const trunk = new THREE.CylinderGeometry(0.1, 0.3, 1, 8, 1); trunk.translate(0, 0.5, 0); trunk.scale(1, 15.5, 1);
   parts.push(solid(trunk, 0x5a4232, 0.15));
-  const leaves = []; const top = 16.2, base = 2.4;
+  const leaves = []; const top = 17.5, base = 4.2; // tronc nu en bas, comme les vrais épicéas en forêt
   const core = new THREE.ConeGeometry(0.75, top - base, 7, 1, true); core.translate(0, base + (top - base) / 2, 0); { const uv = core.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, 0.5, 0.04); } solid(core, 0x1c3320, 0.1); leaves.push(core);
   const whorls = 13;
   for (let i = 0; i < whorls; i++) {
@@ -57561,16 +57561,18 @@ const GRASS = { mesh: null, cx: 1e9, cz: 1e9, uniforms: { uTime: { value: 0 }, u
 function buildGrass(scene, count) {
   if (GRASS.mesh) { scene.remove(GRASS.mesh); GRASS.mesh.geometry.dispose(); }
   const blades = [];
-  for (let i = 0; i < 7; i++) {
-    const g = new THREE.BufferGeometry(); const a = Math.random() * Math.PI, ox = (Math.random() - 0.5) * 0.5, oz = (Math.random() - 0.5) * 0.5, h = 0.22 + Math.random() * 0.38, w = 0.04;
-    const cx = Math.cos(a) * w, cz = Math.sin(a) * w; const bend = (Math.random() - 0.5) * 0.25;
-    const v = [ox - cx, 0, oz - cz, ox + cx, 0, oz + cz, ox + cx * 0.6 + bend, h * 0.55, oz + cz * 0.6, ox - cx * 0.6 + bend, h * 0.55, oz - cz * 0.6, ox + bend * 2, h, oz];
+  const R = mulberry32(77); const tips = [0x6f8f2e, 0x86a03a, 0x9aa846, 0x7a9634, 0xa8a85a, 0x5f8a2a];
+  for (let i = 0; i < 11; i++) {
+    const g = new THREE.BufferGeometry(); const a = R() * Math.PI, ox = (R() - 0.5) * 0.45, oz = (R() - 0.5) * 0.45; const seed = i === 10;
+    const h = seed ? 0.75 + R() * 0.25 : 0.28 + R() * 0.45, w = 0.012 + R() * 0.01;
+    const cx = Math.cos(a) * w, cz = Math.sin(a) * w; const bx = (R() - 0.5) * 0.3, bz = (R() - 0.5) * 0.3;
+    const v = [ox - cx, 0, oz - cz, ox + cx, 0, oz + cz, ox + cx * 0.7 + bx * 0.3, h * 0.5, oz + cz * 0.7 + bz * 0.3, ox - cx * 0.7 + bx * 0.3, h * 0.5, oz - cz * 0.7 + bz * 0.3, ox + bx, h, oz + bz];
     g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setIndex([0, 1, 2, 0, 2, 3, 3, 2, 4]); g.computeVertexNormals();
     const nr = g.attributes.normal; for (let k = 0; k < nr.count; k++) nr.setXYZ(k, 0, 1, 0); // éclairage doux
-    paint(g, 0x93a352, 0x3c5520, 0, h); blades.push(g);
+    paint(g, seed ? 0xe6dcc4 : tips[i % tips.length], 0x34461a, 0, h); blades.push(g);
   }
   const geo = merge(blades);
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.9, envMapIntensity: 0.9 });
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.85, envMapIntensity: 0.9, emissive: 0x0b0d03 });
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = GRASS.uniforms.uTime; sh.uniforms.uWind = GRASS.uniforms.uWind;
     sh.vertexShader = 'uniform float uTime; uniform vec2 uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -57584,7 +57586,7 @@ function buildGrass(scene, count) {
 function updateGrass(px, pz) {
   if (!GRASS.mesh) return; if (Math.hypot(px - GRASS.cx, pz - GRASS.cz) < 12) return;
   GRASS.cx = px; GRASS.cz = pz;
-  const cap = GRASS.cap, rad = Math.sqrt(cap * 1.1 / Math.PI) * 0.75; const sp = 0.75;
+  const cap = GRASS.cap, rad = Math.sqrt(cap * 1.1 / Math.PI) * 0.6; const sp = 0.6;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
   let n = 0; const gx0 = Math.floor((px - rad) / sp), gx1 = Math.floor((px + rad) / sp), gz0 = Math.floor((pz - rad) / sp), gz1 = Math.floor((pz + rad) / sp);
   for (let gz = gz0; gz <= gz1 && n < cap; gz++) for (let gx = gx0; gx <= gx1 && n < cap; gx++) {
@@ -58727,7 +58729,7 @@ function initRenderer() {
   BLOOM = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.22, 0.5, 0.92); COMPOSER.addPass(BLOOM);
   const vig = new ShaderPass(VignetteShader); vig.uniforms.offset.value = 0.95; vig.uniforms.darkness.value = 1.05; COMPOSER.addPass(vig);
   COMPOSER.addPass(new OutputPass());
-  GRADE = new ShaderPass({ uniforms: { tDiffuse: { value: null }, sat: { value: 1.12 }, contrast: { value: 1.07 }, warm: { value: 0.025 }, lift: { value: 0.015 }, grain: { value: 0 }, ca: { value: 0 }, sharp: { value: 0 }, time: { value: 0 }, px: { value: new THREE.Vector2(1 / innerWidth, 1 / innerHeight) } },
+  GRADE = new ShaderPass({ uniforms: { tDiffuse: { value: null }, sat: { value: 1.15 }, contrast: { value: 1.08 }, warm: { value: 0.04 }, lift: { value: 0.015 }, grain: { value: 0 }, ca: { value: 0 }, sharp: { value: 0 }, time: { value: 0 }, px: { value: new THREE.Vector2(1 / innerWidth, 1 / innerHeight) } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: `uniform sampler2D tDiffuse; uniform float sat, contrast, warm, lift, grain, ca, sharp, time; uniform vec2 px; varying vec2 vUv;
       float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -58749,7 +58751,7 @@ function applyQuality() {
   if (WATER && WATER.fancy) { WATER.fancy.visible = !!Q.water; WATER.simple.visible = !Q.water; }
   // rendu « Cinéma » : tonalité AgX (couleurs naturelles façon jeux récents), netteté, grain de pellicule léger, aberration des optiques
   RENDERER.toneMapping = Q.cinema && THREE.AgXToneMapping ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping; GAME.expMul = Q.cinema ? 1.35 : 1;
-  if (GRADE) { const U = GRADE.uniforms; U.grain.value = Q.cinema ? 0.03 : 0; U.ca.value = Q.cinema ? 0.004 : 0; U.sharp.value = Q.cinema ? 0.4 : (Q.water ? 0.18 : 0); U.sat.value = Q.cinema ? 1.18 : 1.12; U.contrast.value = Q.cinema ? 1.1 : 1.07; U.px.value.set(1 / innerWidth, 1 / innerHeight); }
+  if (GRADE) { const U = GRADE.uniforms; U.grain.value = Q.cinema ? 0.03 : 0; U.ca.value = Q.cinema ? 0.004 : 0; U.sharp.value = Q.cinema ? 0.4 : (Q.water ? 0.18 : 0); U.sat.value = Q.cinema ? 1.2 : 1.16; U.contrast.value = Q.cinema ? 1.1 : 1.08; U.px.value.set(1 / innerWidth, 1 / innerHeight); }
   if (BLOOM) BLOOM.strength = Q.cinema ? 0.32 : 0.22;
   if (RENDERER.shadowMap.type !== (Q.cinema ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap)) { RENDERER.shadowMap.type = Q.cinema ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap; if (SUN.shadow.map) { SUN.shadow.map.dispose(); SUN.shadow.map = null; } SCENE.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.needsUpdate = true); }); }
   RENDERER.shadowMap.enabled = SETTINGS.shadows; SUN.castShadow = SETTINGS.shadows;
@@ -58773,9 +58775,9 @@ function updateSky(force) {
   for (const s of [SKY, ENV_SKY]) { const u = s.material.uniforms; u.sunPosition.value.copy(_sunDir); u.turbidity.value = 5 + GAME.windStr * 3; u.rayleigh.value = el < 8 ? 2.6 : 1.4; u.mieCoefficient.value = 0.004; u.mieDirectionalG.value = 0.82; }
   const day = smooth(-6, 10, el); const golden = smooth(18, 2, el) * smooth(-6, 2, el);
   // soleil ou lune
-  if (el > -4) { SUN.position.copy(_sunDir).multiplyScalar(250); SUN.intensity = 3.4 * smooth(-3, 12, el); SUN.color.setRGB(1, lerp(0.95, 0.62, golden), lerp(0.88, 0.4, golden)); }
+  if (el > -4) { SUN.position.copy(_sunDir).multiplyScalar(250); SUN.intensity = 3.9 * smooth(-3, 12, el); SUN.color.setRGB(1, lerp(0.9, 0.6, golden), lerp(0.76, 0.36, golden)); }
   else { const md = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(45), th + Math.PI); SUN.position.copy(md).multiplyScalar(250); SUN.intensity = 0.35; SUN.color.setRGB(0.6, 0.7, 1.0); }
-  HEMI.intensity = lerp(0.12, 0.65, day); HEMI.color.setRGB(lerp(0.25, 0.75, day), lerp(0.3, 0.83, day), lerp(0.5, 1.0, day)); HEMI.groundColor.setRGB(lerp(0.04, 0.24, day), lerp(0.04, 0.2, day), lerp(0.06, 0.12, day));
+  HEMI.intensity = lerp(0.12, 0.65, day); HEMI.color.setRGB(lerp(0.25, 0.66, day), lerp(0.3, 0.8, day), lerp(0.5, 1.05, day)); HEMI.groundColor.setRGB(lerp(0.04, 0.3, day), lerp(0.04, 0.25, day), lerp(0.06, 0.1, day));
   const fc = new THREE.Color().setRGB(lerp(0.03, 0.62, day) + golden * 0.18, lerp(0.04, 0.70, day) + golden * 0.05, lerp(0.07, 0.80, day) - golden * 0.12);
   const wl = typeof WEATHER !== 'undefined' ? lerp(1, WEATHER.light, WEATHER.k || 1) : 1; SUN.intensity *= wl; HEMI.intensity *= lerp(1, 0.85, 1 - wl); if (typeof WEATHER !== 'undefined' && WEATHER.light < 0.9) fc.lerp(new THREE.Color(0.42, 0.46, 0.5).multiplyScalar(day + 0.05), (1 - WEATHER.light) * 1.2);
   SCENE.fog.color.copy(fc); if (typeof WEATHER !== 'undefined') SCENE.fog.density = QUALITY[SETTINGS.quality].fog / SETTINGS.viewMul * lerp(1, WEATHER.fog, WEATHER.k || 1) * (GAME.time % 24 < 8 && GAME.time % 24 > 4 ? 1.4 : 1); if (WATER && WATER.fancy) { WATER.fancy.material.uniforms.sunDirection.value.copy(_sunDir); WATER.fancy.material.uniforms.sunColor.value.copy(SUN.color).multiplyScalar(day); } if (typeof CLOUDS !== 'undefined') { CLOUDS.u.uSun.value.copy(_sunDir); CLOUDS.u.uDay.value = day; CLOUDS.u.uCover.value = typeof WEATHER !== 'undefined' ? lerp(CLOUDS.u.uCover.value, WEATHER.cloud, 0.05) : 0.4; }
@@ -60779,7 +60781,7 @@ function dogPush() {
 // Mise à jour automatique : au lancement, le jeu regarde s'il existe une version plus récente en ligne.
 // Si oui il la télécharge et la lance (les sauvegardes restent les mêmes). Sans Internet, il lance la version du fichier.
 (function () {
-  var V = '7.3', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
+  var V = '7.4', U = 'https://augustinpercher307-netizen.github.io/Terres-sauvages/';
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js').catch(function () { }); } catch (e) { } }
   function run() { var s = document.createElement('script'); s.type = 'module'; s.textContent = document.getElementById('ts-game').textContent; document.body.appendChild(s); }
   function newer(a, b) { a = String(a).split('.').map(Number); b = String(b).split('.').map(Number); for (var i = 0; i < Math.max(a.length, b.length); i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0); } return false; }
